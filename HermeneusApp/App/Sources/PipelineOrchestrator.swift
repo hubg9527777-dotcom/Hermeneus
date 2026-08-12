@@ -119,12 +119,44 @@ public actor ContinuousStreamSegmenter {
         }
         return nil
     }
-    
+
+    /// True from the first speech frame until VAD flushes or discards the utterance.
+    /// The automatic streaming controllers use this only for session lifecycle;
+    /// the existing feed() result remains the authoritative VAD final boundary.
+    public func hasActiveUtterance() -> Bool {
+        !buffer.isEmpty
+    }
+
     private func flushBuffer() -> [Float] {
         let chunk = buffer
         buffer.removeAll()
         silenceMs = 0
         return chunk
+    }
+}
+
+public enum PipelineState: Equatable, Sendable {
+    case idle
+    case listening
+    case previewing
+    case finalizing
+    case deferredForRemote
+    case failed(String)
+
+    public var label: String {
+        switch self {
+        case .idle: return "就绪"
+        case .listening: return "监听中"
+        case .previewing: return "实时预览"
+        case .finalizing: return "生成最终译文"
+        case .deferredForRemote: return "对方优先中 · 本方暂缓"
+        case .failed(let message): return message
+        }
+    }
+
+    public var isError: Bool {
+        if case .failed = self { return true }
+        return false
     }
 }
 
@@ -135,6 +167,9 @@ public struct DialogueTurn: Identifiable, Equatable {
     public var translatedText: String
     public var isTranslationFinal: Bool = false
     public var isSourcePartial: Bool = false
+    public var isTranslationPreview: Bool {
+        !translatedText.isEmpty && !isTranslationFinal
+    }
 }
 
 @MainActor
@@ -324,6 +359,96 @@ private final class PushToTalkController {
 }
 
 @MainActor
+private final class AutomaticStreamingController {
+    private let asrEngine: WebSocketASREngine
+    private var activeSession: WebSocketStreamingSession?
+    private var consumeTask: Task<Void, Never>?
+    private var pendingFrames: [(pcm: [Float], sampleRate: Int)] = []
+    private var isActive = false
+    private var finishRequested = false
+
+    var onPartial: ((String) -> Void)?
+    var onFinal: ((String) -> Void)?
+
+    init(asrEngine: WebSocketASREngine) {
+        self.asrEngine = asrEngine
+    }
+
+    func begin(language: String) {
+        guard !isActive else { return }
+        isActive = true
+        finishRequested = false
+        consumeTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let session = try await self.asrEngine.startStreamingSession(language: language)
+                guard self.isActive else {
+                    await session.cancel()
+                    return
+                }
+                self.activeSession = session
+                let bufferedFrames = self.pendingFrames
+                self.pendingFrames.removeAll(keepingCapacity: true)
+                for frame in bufferedFrames {
+                    await session.feed(pcm: frame.pcm, sampleRate: frame.sampleRate)
+                }
+                if self.finishRequested {
+                    await session.finish()
+                }
+                for try await update in session.updates {
+                    guard !Task.isCancelled else { break }
+                    switch update {
+                    case .partial(let text, _):
+                        self.onPartial?(text)
+                    case .final(let text, _):
+                        self.onFinal?(text)
+                    }
+                }
+            } catch is CancellationError {
+                // Cancellation is the normal response to stop/reset.
+            } catch {
+                print("⚠️ [AutoStream] 会话异常: \(error)")
+            }
+            self.activeSession = nil
+            self.pendingFrames.removeAll(keepingCapacity: true)
+            self.isActive = false
+            self.finishRequested = false
+        }
+    }
+
+    func feed(pcm: [Float], sampleRate: Int) {
+        guard isActive, !finishRequested, !pcm.isEmpty else { return }
+        if let activeSession {
+            Task { await activeSession.feed(pcm: pcm, sampleRate: sampleRate) }
+            return
+        }
+        // Preserve only the short connection-start gap. This caps the extra
+        // memory while retaining the beginning of a short utterance.
+        pendingFrames.append((pcm: pcm, sampleRate: sampleRate))
+        if pendingFrames.count > 12 {
+            pendingFrames.removeFirst(pendingFrames.count - 12)
+        }
+    }
+
+    func finish() {
+        guard isActive else { return }
+        finishRequested = true
+        guard let activeSession else { return }
+        Task { await activeSession.finish() }
+    }
+
+    func cancelActive() {
+        isActive = false
+        finishRequested = false
+        pendingFrames.removeAll(keepingCapacity: true)
+        consumeTask?.cancel()
+        guard let activeSession else { return }
+        Task { await activeSession.cancel() }
+        self.activeSession = nil
+    }
+}
+
+@MainActor
 public final class PipelineOrchestrator: ObservableObject {
     @Published public var isListeningRemote: Bool = true
     @Published public var isSpeakingLocal: Bool = true
@@ -332,6 +457,8 @@ public final class PipelineOrchestrator: ObservableObject {
     @Published public var isRunning: Bool = false
     @Published public var latencyMs: Int = 0
     @Published public var isTTSPlaying: Bool = false
+    @Published public private(set) var remotePipelineState: PipelineState = .idle
+    @Published public private(set) var localPipelineState: PipelineState = .idle
     private var cancellables = Set<AnyCancellable>()
     @Published public var editingTurnId: UUID? = nil
     @Published public var editingSourceText: String = ""
@@ -378,6 +505,56 @@ public final class PipelineOrchestrator: ObservableObject {
     }()
     
     private var pttActiveTurnId: UUID?
+
+    // Automatic VAD now controls when a streaming session starts and stops;
+    // it no longer delays the first ASR request until the whole utterance ends.
+    private lazy var localAutoController: AutomaticStreamingController = {
+        let controller = AutomaticStreamingController(asrEngine: asr)
+        controller.onPartial = { [weak self] text in
+            self?.handleLocalAutoPartial(text)
+        }
+        controller.onFinal = { [weak self] text in
+            Task { @MainActor in
+                await self?.handleLocalAutoFinal(text)
+            }
+        }
+        return controller
+    }()
+    private var localAutoTurnId: UUID?
+    private var localPreviewTask: Task<Void, Never>?
+    private var localPreviewGeneration: UInt = 0
+    private var localPreviewSource = ""
+
+    private lazy var remoteAutoController: AutomaticStreamingController = {
+        let controller = AutomaticStreamingController(asrEngine: asr)
+        controller.onPartial = { [weak self] text in
+            self?.handleRemoteAutoPartial(text)
+        }
+        controller.onFinal = { [weak self] text in
+            Task { @MainActor in
+                await self?.handleRemoteAutoFinal(text)
+            }
+        }
+        return controller
+    }()
+    private var remoteAutoTurnId: UUID?
+    private var remotePreviewTask: Task<Void, Never>?
+    private var remotePreviewGeneration: UInt = 0
+    private var remotePreviewSource = ""
+
+    // Final translations must never compete with low-value preview work. A
+    // single counter covers both directions because they share one local Ollama.
+    private var finalTranslationInFlightCount = 0
+
+    // Product policy: protect the other speaker first. While a Spanish remote
+    // utterance is active or its final translation is pending, local work may
+    // be safely repeated and is therefore deferred rather than competing.
+    private var isRemotePriorityActive = false
+
+    // Rendering every model token can saturate SwiftUI animations during long
+    // responses. Coalesce non-final updates to approximately 30 FPS.
+    private var uiRefreshPending = false
+    private let uiRefreshIntervalNs: UInt64 = 33_000_000
     
     public init() {
         let ttsEngine = self.tts
@@ -387,6 +564,8 @@ public final class PipelineOrchestrator: ObservableObject {
     public func startSession() async {
         guard !isRunning else { return }
         isRunning = true
+        remotePipelineState = .listening
+        localPipelineState = .listening
         AVCaptureDevice.requestAccess(for: .audio) { granted in
             if granted {
                 Task { @MainActor in
@@ -415,10 +594,17 @@ public final class PipelineOrchestrator: ObservableObject {
         micCapturer.stopCapture()
         try? await systemCapturer.stopCapture()
         pttController.cancelActive()
+        localAutoController.cancelActive()
+        remoteAutoController.cancelActive()
+        invalidateLocalPreview()
+        invalidateRemotePreview()
         remoteBuffer.reset()
         localBuffer.reset()
         await contextEngine.reset()
         isTTSPlaying = false
+        remotePipelineState = .idle
+        localPipelineState = .idle
+        isRemotePriorityActive = false
         print("🛑 会话已结束，全部上下文已清空（纯内存，无残留）")
     }
     
@@ -442,7 +628,6 @@ public final class PipelineOrchestrator: ObservableObject {
     private func startSystemAudioLoop() {
         let segmenter = self.remoteSegmenter
         Task.detached(priority: .userInitiated) { [weak self] in
-            var seq: UInt64 = 0
             while await self?.isRunning == true {
                 try? await Task.sleep(nanoseconds: 80_000_000)
                 guard let self = self else { break }
@@ -450,16 +635,29 @@ public final class PipelineOrchestrator: ObservableObject {
                 let ttsPlaying = await self.isTTSPlaying
                 if !listening || ttsPlaying {
                     _ = await self.systemCapturer.ringBuffer.readLatest(count: 9600)
+                    Task { @MainActor in
+                        self.remoteAutoController.cancelActive()
+                        self.invalidateRemotePreview()
+                        self.releaseRemotePriority()
+                    }
                     continue
                 }
                 let samples = await self.systemCapturer.ringBuffer.readLatest(count: 4800)
                 guard !samples.isEmpty else { continue }
-                if let speechPCM = await segmenter.feed(pcm: samples) {
-                    seq += 1
-                    let slice = AudioSlice(pcmData: speechPCM, sampleRate: 48000)
-                    let seg = Segment(id: SegmentID(channel: .remote, seq: seq), audio: slice)
+
+                let wasActive = await segmenter.hasActiveUtterance()
+                let completedSegment = await segmenter.feed(pcm: samples)
+                let isActive = await segmenter.hasActiveUtterance()
+                let shouldFinish = completedSegment != nil || (wasActive && !isActive)
+
+                if wasActive || isActive {
                     Task { @MainActor in
-                        await self.remoteQueue.enqueue(seg)
+                        self.activateRemotePriority()
+                        self.remoteAutoController.begin(language: "es")
+                        self.remoteAutoController.feed(pcm: samples, sampleRate: 48000)
+                        if shouldFinish {
+                            self.remoteAutoController.finish()
+                        }
                     }
                 }
             }
@@ -470,7 +668,6 @@ public final class PipelineOrchestrator: ObservableObject {
         let bufferActor = self.micBufferActor
         let segmenter = self.localSegmenter
         Task.detached(priority: .userInitiated) { [weak self] in
-            var seq: UInt64 = 0
             while await self?.isRunning == true {
                 try? await Task.sleep(nanoseconds: 80_000_000)
                 guard let self = self else { break }
@@ -481,55 +678,259 @@ public final class PipelineOrchestrator: ObservableObject {
                 }
                 let speaking = await self.isSpeakingLocal
                 let ttsPlaying = await self.isTTSPlaying
-                if !speaking || ttsPlaying {
+                let remotePriority = await self.isRemotePriorityActive
+                if !speaking || ttsPlaying || remotePriority {
                     _ = await self.micBufferActor.flush()
                     continue
                 }
                 let pcmChunk = await bufferActor.flush()
-                if let speechPCM = await segmenter.feed(pcm: pcmChunk) {
-                    seq += 1
-                    let slice = AudioSlice(pcmData: speechPCM, sampleRate: 48000)
-                    let seg = Segment(id: SegmentID(channel: .local, seq: seq), audio: slice)
+                guard !pcmChunk.isEmpty else { continue }
+
+                let wasActive = await segmenter.hasActiveUtterance()
+                let completedSegment = await segmenter.feed(pcm: pcmChunk)
+                let isActive = await segmenter.hasActiveUtterance()
+                let shouldFinish = completedSegment != nil || (wasActive && !isActive)
+
+                if wasActive || isActive {
                     Task { @MainActor in
-                        await self.localQueue.enqueue(seg)
+                        self.localAutoController.begin(language: "zh")
+                        self.localAutoController.feed(pcm: pcmChunk, sampleRate: 48000)
+                        if shouldFinish {
+                            self.localAutoController.finish()
+                        }
                     }
                 }
             }
         }
     }
     
+    private func activateRemotePriority() {
+        guard !isRemotePriorityActive else { return }
+        isRemotePriorityActive = true
+        invalidateLocalPreview()
+        localAutoController.cancelActive()
+        if pttController.isPressed {
+            pttController.cancelActive()
+            isPTTPressed = false
+        }
+        if !localPipelineState.isError {
+            localPipelineState = .deferredForRemote
+        }
+    }
+
+    private func releaseRemotePriority() {
+        guard isRemotePriorityActive else { return }
+        isRemotePriorityActive = false
+        if !localPipelineState.isError && !isTTSPlaying {
+            localPipelineState = .listening
+        }
+    }
+
+    private func invalidateRemotePreview() {
+        remotePreviewGeneration &+= 1
+        remotePreviewTask?.cancel()
+        remotePreviewTask = nil
+        remotePreviewSource = ""
+    }
+
+    private func startRemotePreviewTranslation(sourceText: String, turnId: UUID) {
+        guard finalTranslationInFlightCount == 0 else { return }
+        guard let candidate = previewCandidate(from: sourceText, previous: remotePreviewSource) else { return }
+        remotePreviewSource = candidate
+        remotePreviewGeneration &+= 1
+        let generation = remotePreviewGeneration
+        remotePreviewTask?.cancel()
+        remoteBuffer.updateTranslatedText(turnId: turnId, newText: "")
+        let context = recentContext(from: remoteBuffer)
+
+        remotePreviewTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let stream = try await self.translator.translate(
+                    text: candidate,
+                    contextHistory: context,
+                    targetLanguage: "中文"
+                )
+                for try await update in stream {
+                    guard !Task.isCancelled,
+                          self.remotePreviewGeneration == generation,
+                          self.remoteAutoTurnId == turnId else { return }
+                    if case .delta(let token) = update {
+                        self.remoteBuffer.appendTranslationDelta(turnId: turnId, token: token)
+                        self.scheduleUIRefresh()
+                    }
+                }
+            } catch is CancellationError {
+                // Superseded by a newer Spanish stable prefix or final text.
+            } catch {
+                if self.remotePreviewGeneration == generation {
+                    print("⚠️ [AutoStream] 西语预翻译异常: \(error)")
+                }
+            }
+        }
+    }
+
+    private func handleRemoteAutoPartial(_ text: String) {
+        guard !text.isEmpty else { return }
+        activateRemotePriority()
+        remotePipelineState = .previewing
+        let turnId = remoteBuffer.updateActivePartialTurn(sourceText: text)
+        remoteAutoTurnId = turnId
+        scheduleUIRefresh()
+        startRemotePreviewTranslation(sourceText: text, turnId: turnId)
+    }
+
+    private func handleRemoteAutoFinal(_ text: String) async {
+        guard !text.isEmpty else {
+            remoteAutoTurnId = nil
+            invalidateRemotePreview()
+            releaseRemotePriority()
+            return
+        }
+        await commitRemoteFinalText(text, existingTurnId: remoteAutoTurnId)
+        remoteAutoTurnId = nil
+    }
+
+    private func commitRemoteFinalText(_ text: String, existingTurnId: UUID?) async {
+        // Stop preview traffic in both directions before requesting an
+        // authoritative result. Ollama may still finish a canceled HTTP stream,
+        // but no stale token is allowed to reach the subtitle buffer.
+        activateRemotePriority()
+        invalidateRemotePreview()
+        invalidateLocalPreview()
+        finalTranslationInFlightCount += 1
+        remotePipelineState = .finalizing
+        defer {
+            finalTranslationInFlightCount = max(0, finalTranslationInFlightCount - 1)
+            if !remotePipelineState.isError { remotePipelineState = .listening }
+            releaseRemotePriority()
+        }
+        let turnId: UUID
+        if let existingTurnId {
+            remoteBuffer.finalizeSourceText(turnId: existingTurnId, finalText: text)
+            turnId = existingTurnId
+        } else {
+            guard let newTurnId = remoteBuffer.beginTurn(sourceText: text) else { return }
+            turnId = newTurnId
+        }
+        remoteBuffer.updateTranslatedText(turnId: turnId, newText: "")
+        scheduleUIRefresh()
+        await contextEngine.observeSource(text)
+        let context = recentContext(from: remoteBuffer)
+        do {
+            let transStream = try await translator.translate(text: text, contextHistory: context, targetLanguage: "中文")
+            for try await transUpdate in transStream {
+                switch transUpdate {
+                case .delta(let token):
+                    remoteBuffer.appendTranslationDelta(turnId: turnId, token: token)
+                    scheduleUIRefresh()
+                case .final(let fullTrans):
+                    var finalText = fullTrans
+                    if !finalText.isEmpty && !finalText.hasSuffix(" ") && !finalText.hasSuffix("。") {
+                        finalText += "。"
+                    }
+                    remoteBuffer.finalizeTranslation(turnId: turnId, fullText: finalText)
+                    remotePipelineState = .listening
+                    Task { [contextEngine] in
+                        await contextEngine.observeTranslation(finalText)
+                    }
+                default:
+                    break
+                }
+            }
+        } catch {
+            remotePipelineState = .failed("对方翻译失败，请继续说话重试")
+            print("远端翻译异常: \(error)")
+        }
+    }
+
+    // Backward-compatible segment entry point retained for callers outside the
+    // automatic loop. The automatic path now uses remoteAutoController instead.
     private func processRemoteSegment(_ seg: Segment) async {
         do {
             let stream = try await asr.transcribe(segment: seg, language: "es")
             for try await update in stream {
                 guard case .final(let text, _) = update, !text.isEmpty else { continue }
-                guard let turnId = remoteBuffer.beginTurn(sourceText: text) else { continue }
-                await contextEngine.observeSource(text)
-                let context = recentContext(from: remoteBuffer)
-                let transStream = try await translator.translate(text: text, contextHistory: context, targetLanguage: "中文")
-                for try await transUpdate in transStream {
-                    switch transUpdate {
-                    case .delta(let token):
-                        remoteBuffer.appendTranslationDelta(turnId: turnId, token: token)
-                        DispatchQueue.main.async { self.objectWillChange.send() }
-                    case .final(let fullTrans):
-                        var finalText = fullTrans
-                        if !finalText.isEmpty && !finalText.hasSuffix(" ") && !finalText.hasSuffix("。") {
-                            finalText += "。"
-                        }
-                        remoteBuffer.finalizeTranslation(turnId: turnId, fullText: finalText)
-                        Task { [contextEngine] in
-                            await contextEngine.observeTranslation(finalText)
-                        }
-                    default: break
-                    }
-                }
+                await commitRemoteFinalText(text, existingTurnId: nil)
             }
         } catch {
+            remotePipelineState = .failed("对方识别连接中断")
             print("远端处理异常: \(error)")
         }
     }
     
+    private func handleLocalAutoPartial(_ text: String) {
+        guard !text.isEmpty, !isRemotePriorityActive else { return }
+        localPipelineState = .previewing
+        let turnId = localBuffer.updateActivePartialTurn(sourceText: text)
+        localAutoTurnId = turnId
+        scheduleUIRefresh()
+        startLocalPreviewTranslation(sourceText: text, turnId: turnId)
+    }
+
+    private func handleLocalAutoFinal(_ text: String) async {
+        guard !text.isEmpty else {
+            localAutoTurnId = nil
+            invalidateLocalPreview()
+            return
+        }
+        await commitLocalFinalText(text, existingTurnId: localAutoTurnId)
+        localAutoTurnId = nil
+    }
+
+    private func previewCandidate(from sourceText: String, previous: String, minimumCharacters: Int = 10) -> String? {
+        let candidate = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard candidate.count >= minimumCharacters, candidate != previous else { return nil }
+        let growth = candidate.count - previous.count
+        let isSentenceBoundary = candidate.last.map { "，。！？；,.?!;".contains($0) } ?? false
+        guard previous.isEmpty || growth >= 8 || isSentenceBoundary else { return nil }
+        return candidate
+    }
+
+    private func invalidateLocalPreview() {
+        localPreviewGeneration &+= 1
+        localPreviewTask?.cancel()
+        localPreviewTask = nil
+        localPreviewSource = ""
+    }
+
+    private func startLocalPreviewTranslation(sourceText: String, turnId: UUID) {
+        guard finalTranslationInFlightCount == 0, !isRemotePriorityActive else { return }
+        guard let candidate = previewCandidate(from: sourceText, previous: localPreviewSource) else { return }
+        localPreviewSource = candidate
+        localPreviewGeneration &+= 1
+        let generation = localPreviewGeneration
+        localPreviewTask?.cancel()
+        localBuffer.updateTranslatedText(turnId: turnId, newText: "")
+        let context = recentContext(from: localBuffer)
+
+        localPreviewTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let stream = try await self.translator.translate(
+                    text: candidate,
+                    contextHistory: context,
+                    targetLanguage: "西班牙语"
+                )
+                for try await update in stream {
+                    guard !Task.isCancelled,
+                          self.localPreviewGeneration == generation,
+                          self.localAutoTurnId == turnId else { return }
+                    if case .delta(let token) = update {
+                        self.localBuffer.appendTranslationDelta(turnId: turnId, token: token)
+                        self.scheduleUIRefresh()
+                    }
+                }
+            } catch is CancellationError {
+                // A newer stable prefix or final text superseded this preview.
+            } catch {
+                if self.localPreviewGeneration == generation {
+                    print("⚠️ [AutoStream] 中文预翻译异常: \(error)")
+                }
+            }
+        }
+    }
+
     private func processLocalSegmentAutoVAD(_ seg: Segment) async {
         do {
             let stream = try await asr.transcribe(segment: seg, language: "zh")
@@ -547,6 +948,7 @@ public final class PipelineOrchestrator: ObservableObject {
                 }
             }
         } catch {
+            localPipelineState = .failed("我的识别连接中断")
             print("麦克风同传异常(自动模式): \(error)")
             self.isTTSPlaying = false
         }
@@ -569,6 +971,18 @@ public final class PipelineOrchestrator: ObservableObject {
     }
     
     private func commitLocalFinalText(_ text: String, existingTurnId: UUID?) async {
+        guard !isRemotePriorityActive else {
+            localPipelineState = .deferredForRemote
+            return
+        }
+        invalidateLocalPreview()
+        invalidateRemotePreview()
+        finalTranslationInFlightCount += 1
+        localPipelineState = .finalizing
+        defer {
+            finalTranslationInFlightCount = max(0, finalTranslationInFlightCount - 1)
+            if !localPipelineState.isError { localPipelineState = .listening }
+        }
         let turnId: UUID
         if let existingTurnId {
             localBuffer.finalizeSourceText(turnId: existingTurnId, finalText: text)
@@ -578,6 +992,7 @@ public final class PipelineOrchestrator: ObservableObject {
             turnId = newTurnId
         }
         DispatchQueue.main.async { self.objectWillChange.send() }
+        localBuffer.updateTranslatedText(turnId: turnId, newText: "")
         await contextEngine.observeSource(text)
         let context = recentContext(from: localBuffer)
         do {
@@ -586,11 +1001,12 @@ public final class PipelineOrchestrator: ObservableObject {
                 switch transUpdate {
                 case .delta(let token):
                     localBuffer.appendTranslationDelta(turnId: turnId, token: token)
-                    DispatchQueue.main.async { self.objectWillChange.send() }
+                    scheduleUIRefresh()
                 case .clauseCommitted(_):
                     break
                 case .final(let fullTrans):
                     localBuffer.finalizeTranslation(turnId: turnId, fullText: fullTrans)
+                    localPipelineState = .listening
                     Task { [contextEngine] in
                         await contextEngine.observeTranslation(fullTrans)
                     }
@@ -601,13 +1017,17 @@ public final class PipelineOrchestrator: ObservableObject {
                 }
             }
         } catch {
+            localPipelineState = .failed("我的翻译失败，请继续说话重试")
             print("本地翻译异常: \(error)")
             self.isTTSPlaying = false
         }
     }
     
     public func pressToTalkStart() {
-        guard localInputMode == .pushToTalk, isRunning else { return }
+        guard localInputMode == .pushToTalk, isRunning, !isRemotePriorityActive else {
+            if isRemotePriorityActive { localPipelineState = .deferredForRemote }
+            return
+        }
         isPTTPressed = true
         pttController.press(language: "zh")
     }
@@ -628,6 +1048,10 @@ public final class PipelineOrchestrator: ObservableObject {
     }
     
     public func retranslateAndSpeak(turnId: UUID, newChineseText: String) async {
+        guard !isRemotePriorityActive else {
+            localPipelineState = .deferredForRemote
+            return
+        }
         localBuffer.updateSourceText(turnId: turnId, newText: newChineseText)
         DispatchQueue.main.async { self.objectWillChange.send() }
         localBuffer.updateTranslatedText(turnId: turnId, newText: "重新翻译中...")
@@ -687,9 +1111,19 @@ public final class PipelineOrchestrator: ObservableObject {
         }
     }
     
-    public func triggerUIRefresh() {
-        DispatchQueue.main.async {
+    private func scheduleUIRefresh() {
+        guard !uiRefreshPending else { return }
+        uiRefreshPending = true
+        let interval = uiRefreshIntervalNs
+        Task { @MainActor [weak self, interval] in
+            try? await Task.sleep(nanoseconds: interval)
+            guard let self else { return }
+            self.uiRefreshPending = false
             self.objectWillChange.send()
         }
+    }
+
+    public func triggerUIRefresh() {
+        self.objectWillChange.send()
     }
 }

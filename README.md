@@ -96,14 +96,12 @@ ollama pull qwen2.5:3b
 
 ------------------------------------------------------------------------
 
-# ▶️ 启动
+# ▶️ 启动（v1.0.4）
 
-以后无需重复安装。
+以后无需重复安装。打开终端后执行：
 
-打开终端：
-
-``` bash
-hermeneus
+```bash
+~/Documents/Hermeneus/Hermeneus_start.sh
 ```
 
 程序将自动：
@@ -150,8 +148,8 @@ hermeneus
 
 更新后继续执行：
 
-``` bash
-hermeneus
+```bash
+~/Documents/Hermeneus/Hermeneus_start.sh
 ```
 
 ------------------------------------------------------------------------
@@ -182,8 +180,8 @@ hermeneus
 
 重新执行：
 
-``` bash
-hermeneus
+```bash
+~/Documents/Hermeneus/Hermeneus_start.sh
 ```
 
 若仍失败，请检查启动脚本或重新安装 Ollama。

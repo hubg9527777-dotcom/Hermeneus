@@ -21,13 +21,16 @@ public final class SCKAudioCapturer: NSObject, @unchecked Sendable, SCStreamOutp
     private let sampleContinuation: AsyncStream<[Float]>.Continuation
     private let sampleStream: AsyncStream<[Float]>
     private var consumerTask: Task<Void, Never>?
+    // The capture callback runs on one serial queue. Count drops without
+    // retaining audio, so overload is observable without unbounded memory.
+    private var droppedSampleChunkCount: UInt64 = 0
 
     public override init() {
         var continuation: AsyncStream<[Float]>.Continuation!
-        // .unbounded：消费者(ringBuffer.write，纯内存拷贝)理论上远快于
-        // 音频产生速率，正常不会积压；如果你观察到极端情况下内存增长，
-        // 可以换成 .bufferingNewest(N) 做丢帧保护（丢旧帧保最新）。
-        self.sampleStream = AsyncStream<[Float]>(bufferingPolicy: .unbounded) { cont in
+        // A real-time capture path must prefer fresh audio over memory growth.
+        // Thirty-two incoming chunks provide a short scheduling cushion; on
+        // overload AsyncStream drops the oldest chunk and records the event.
+        self.sampleStream = AsyncStream<[Float]>(bufferingPolicy: .bufferingNewest(32)) { cont in
             continuation = cont
         }
         self.sampleContinuation = continuation
@@ -88,7 +91,19 @@ public final class SCKAudioCapturer: NSObject, @unchecked Sendable, SCStreamOutp
 
         // yield 同步返回、极轻量（本质是把数据塞进队列），不阻塞音频回调线程，
         // 由唯一的消费者 Task 严格按到达顺序异步写入 ringBuffer。
-        sampleContinuation.yield(samples)
+        switch sampleContinuation.yield(samples) {
+        case .enqueued(_):
+            break
+        case .dropped(_):
+            droppedSampleChunkCount += 1
+            if droppedSampleChunkCount == 1 || droppedSampleChunkCount % 100 == 0 {
+                print("⚠️ [Audio] 系统音频缓冲过载，已丢弃旧块；累计=\(droppedSampleChunkCount)")
+            }
+        case .terminated:
+            break
+        @unknown default:
+            break
+        }
     }
 
     private func extractPCMBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {

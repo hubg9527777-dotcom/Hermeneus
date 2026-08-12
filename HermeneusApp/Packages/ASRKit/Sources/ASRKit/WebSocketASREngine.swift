@@ -207,15 +207,30 @@ public actor WebSocketStreamingSession: ASRStreamingSession {
         switch type {
         case "partial":
             let text = (json["text"] as? String) ?? ""
-            continuation?.yield(.partial(text, stability: 0.5))
+            let stability = (json["stability"] as? NSNumber)?.floatValue ?? 0.5
+            continuation?.yield(.partial(text, stability: stability))
 
         case "final":
             let text = (json["text"] as? String) ?? ""
-            let meta = ASRMeta(confidence: 0.9, durationMs: 0, noSpeechProb: 0)
+            let rawMeta = json["meta"] as? [String: Any]
+            let confidence = (rawMeta?["confidence"] as? NSNumber)?.floatValue ?? 0.0
+            let durationMs = (rawMeta?["audio_ms"] as? NSNumber)?.doubleValue ?? 0.0
+            let noSpeechProb = (rawMeta?["no_speech_prob"] as? NSNumber)?.floatValue ?? 0.0
+            let meta = ASRMeta(confidence: confidence, durationMs: durationMs, noSpeechProb: noSpeechProb)
             continuation?.yield(.final(text, meta: meta))
             continuation?.finish()
             continuation = nil
             task?.cancel(with: .normalClosure, reason: nil)
+
+        case "error":
+            let code = (json["code"] as? String) ?? "asr_protocol_error"
+            continuation?.finish(throwing: NSError(
+                domain: "HermeneusASR",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: code]
+            ))
+            continuation = nil
+            task?.cancel(with: .goingAway, reason: nil)
 
         case "pong":
             break

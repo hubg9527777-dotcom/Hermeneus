@@ -16,6 +16,18 @@ v4 -> v5 核心变化：
 
 import os
 
+
+def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, value)
+
+
 _CPU_COUNT = os.cpu_count() or 4
 _THREAD_CAP = max(2, min(4, _CPU_COUNT // 2))
 for _env in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
@@ -40,12 +52,22 @@ torch.set_num_threads(_THREAD_CAP)
 torch.set_num_interop_threads(1)
 
 import websockets
-from bottle import route, run, request, WSGIRefServer
+from bottle import route, run, request, response, WSGIRefServer
 from socketserver import ThreadingMixIn
 from wsgiref.simple_server import WSGIServer
 
 print = functools.partial(print, flush=True)
-DEBUG = True
+# Release defaults protect conversation content. Set ASR_DEBUG=1 only for local,
+# short-lived diagnostics; metrics never include transcript text.
+DEBUG = os.environ.get("ASR_DEBUG", "0") == "1"
+METRICS_ENABLED = os.environ.get("ASR_METRICS", "0") == "1"
+
+
+def emit_metric(event: str, **fields):
+    if not METRICS_ENABLED:
+        return
+    payload = {"event": event, **fields}
+    print(f"📊 [metric] {json.dumps(payload, ensure_ascii=False, sort_keys=True)}")
 
 try:
     from scipy.signal import resample_poly
@@ -63,7 +85,39 @@ WS_HOST = os.environ.get("ASR_WS_HOST", "localhost")
 WS_PORT = int(os.environ.get("ASR_WS_PORT", "8081"))
 HTTP_PORT = int(os.environ.get("ASR_HTTP_PORT", "8080"))
 
+# Bound untrusted/local IPC input so a stalled or malformed client cannot grow
+# memory without limit. Environment values are deliberately explicit for tuning.
+MAX_HTTP_REQUEST_BYTES = _positive_int_env("ASR_MAX_HTTP_REQUEST_BYTES", 4 * 1024 * 1024)
+MAX_WS_FRAME_BYTES = _positive_int_env("ASR_MAX_WS_FRAME_BYTES", 512 * 1024)
+MAX_SESSION_SECONDS = _positive_int_env("ASR_MAX_SESSION_SECONDS", 45)
+MAX_SESSION_BYTES = TARGET_SR * 2 * MAX_SESSION_SECONDS
+MAX_CONCURRENT_SESSIONS = _positive_int_env("ASR_MAX_CONCURRENT_SESSIONS", 2)
+# Reserve one admission slot for the remote Spanish channel. Local speech can be
+# repeated; remote speech cannot. The default permits one remote and one local
+# live session without allowing local work to consume remote capacity.
+REMOTE_SESSION_SLOTS = _positive_int_env("ASR_REMOTE_SESSION_SLOTS", 1)
+LOCAL_SESSION_SLOTS = _positive_int_env(
+    "ASR_LOCAL_SESSION_SLOTS", max(1, MAX_CONCURRENT_SESSIONS - REMOTE_SESSION_SLOTS)
+)
+# Spanish Whisper is not natively streaming in this stack. For automatic VAD
+# utterances we issue bounded rolling decodes, never more often than this cadence.
+ES_PREVIEW_INITIAL_MS = _positive_int_env("ASR_ES_PREVIEW_INITIAL_MS", 1200)
+ES_PREVIEW_INTERVAL_MS = _positive_int_env("ASR_ES_PREVIEW_INTERVAL_MS", 900)
+ES_PREVIEW_INITIAL_SAMPLES = TARGET_SR * ES_PREVIEW_INITIAL_MS // 1000
+ES_PREVIEW_INTERVAL_SAMPLES = TARGET_SR * ES_PREVIEW_INTERVAL_MS // 1000
+SESSION_SEMAPHORE = None
+REMOTE_SESSION_SEMAPHORE = None
+LOCAL_SESSION_SEMAPHORE = None
+WHISPER_FINAL_PENDING = 0
+
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+if WS_HOST not in _LOOPBACK_HOSTS and os.environ.get("ASR_ALLOW_REMOTE", "0") != "1":
+    raise RuntimeError("Refusing a non-loopback ASR listener. Set ASR_ALLOW_REMOTE=1 only behind authenticated TLS.")
+
 print(f"⏳ [线程策略] CPU核心={_CPU_COUNT}, 每引擎线程上限={_THREAD_CAP}, device={DEVICE}")
+print(f"🔒 [资源上限] HTTP={MAX_HTTP_REQUEST_BYTES}B, WS帧={MAX_WS_FRAME_BYTES}B, 会话={MAX_SESSION_SECONDS}s, 并发={MAX_CONCURRENT_SESSIONS}")
+print(f"🎧 [对方优先] 西语保留会话={REMOTE_SESSION_SLOTS}, 本方会话={LOCAL_SESSION_SLOTS}")
+print(f"⏱️ [西语预览] 首次={ES_PREVIEW_INITIAL_MS}ms, 重解码间隔={ES_PREVIEW_INTERVAL_MS}ms")
 print(f"⏳ [平台探测] Apple Silicon={_IS_APPLE_SILICON}, 尝试启用 MLX={_USE_MLX}, whisper模型={WHISPER_MODEL_SIZE}")
 
 # =========================================================
@@ -417,14 +471,26 @@ _warmup()
 # =========================================================
 @route('/inference', method='POST')
 def inference():
-    t0 = time.time()
+    t0 = time.perf_counter()
+    content_length = request.content_length
+    if content_length and content_length > MAX_HTTP_REQUEST_BYTES:
+        response.status = 413
+        return {"text": "", "error": "audio_too_large"}
+
     upload = request.files.get('file')
     language = request.forms.get('language', default='zh')
-
+    if language not in {"zh", "es", "auto"}:
+        response.status = 400
+        return {"text": "", "error": "unsupported_language"}
     if not upload:
-        return {"text": ""}
+        response.status = 400
+        return {"text": "", "error": "missing_audio"}
 
-    raw_bytes = upload.file.read()
+    raw_bytes = upload.file.read(MAX_HTTP_REQUEST_BYTES + 1)
+    if len(raw_bytes) > MAX_HTTP_REQUEST_BYTES:
+        response.status = 413
+        return {"text": "", "error": "audio_too_large"}
+
     audio = decode_audio(raw_bytes)
     if audio is None or not has_speech(audio):
         return {"text": ""}
@@ -442,17 +508,22 @@ def inference():
         if use_paraformer:
             text = run_paraformer_offline(audio)
             if DEBUG:
-                print(f"🎙️ [Paraformer 中文(HTTP兜底)] 原始识别: {text!r} (耗时 {time.time()-t0:.2f}s)")
+                print(f"🎙️ [Paraformer 中文(HTTP兜底)] 原始识别: {text!r} (耗时 {time.perf_counter()-t0:.2f}s)")
         else:
             text = run_whisper(audio, language)
             if DEBUG:
-                print(f"🎧 [Whisper({WHISPER_BACKEND}) 西语高精] 原始识别: {text!r} (耗时 {time.time()-t0:.2f}s)")
+                print(f"🎧 [Whisper({WHISPER_BACKEND}) 西语高精] 原始识别: {text!r} (耗时 {time.perf_counter()-t0:.2f}s)")
 
         cleaned_text = sanitize_and_clean_text(text)
 
         if cleaned_text and DEBUG:
-            print(f"✅ [{language}] 最终有效输出: {cleaned_text!r} (总耗时 {time.time()-t0:.2f}s)")
-
+            print(f"✅ [{language}] 最终有效输出: {cleaned_text!r} (总耗时 {time.perf_counter()-t0:.2f}s)")
+        emit_metric(
+            "http_asr_final",
+            language=language,
+            audio_ms=round(len(audio) / TARGET_SR * 1000),
+            total_ms=round((time.perf_counter() - t0) * 1000),
+        )
         return {"text": cleaned_text}
 
     except Exception as e:
@@ -476,16 +547,36 @@ class ASRSession:
     def __init__(self, language: str):
         self.language = language
         self.pcm_buffer = np.zeros(0, dtype=np.float32)
-        self.full_audio_accum = np.zeros(0, dtype=np.float32)  # 供 Whisper 整段推理 / 兜底重推
+        # Whisper requires an utterance-level view, but repeatedly concatenating
+        # each incoming frame makes long sessions copy increasingly large arrays.
+        # Keep chunks and join only at finalization; streaming Chinese Paraformer
+        # does not retain a redundant full copy unless it is already in fallback.
+        self.full_audio_chunks: list[np.ndarray] = []
         self.paraformer_cache = {}
         self.closed = False
         self.last_partial_text = ""
         self.total_bytes_received = 0
+        self.es_preview_in_flight = False
+        self.es_preview_last_samples = 0
+        self.es_preview_generation = 0
+        self.es_preview_task = None
+
+    def full_audio(self) -> np.ndarray:
+        return np.concatenate(self.full_audio_chunks) if self.full_audio_chunks else np.zeros(0, dtype=np.float32)
 
     def feed_pcm16(self, raw_bytes: bytes):
+        if not raw_bytes or len(raw_bytes) % 2 != 0:
+            raise ValueError("invalid_pcm16_frame")
+        if self.total_bytes_received + len(raw_bytes) > MAX_SESSION_BYTES:
+            raise ValueError("session_audio_limit_exceeded")
         chunk = pcm16_bytes_to_float32(raw_bytes)
-        self.pcm_buffer = np.concatenate([self.pcm_buffer, chunk])
-        self.full_audio_accum = np.concatenate([self.full_audio_accum, chunk])
+        # Paraformer consumes pcm_buffer every 600 ms. Spanish Whisper and the
+        # Chinese fallback never consume it, so retaining it there caused an
+        # avoidable O(n²) copy on each inbound frame during long sessions.
+        if self.language == "zh" and paraformer_model is not None:
+            self.pcm_buffer = np.concatenate([self.pcm_buffer, chunk])
+        else:
+            self.full_audio_chunks.append(chunk)
         self.total_bytes_received += len(raw_bytes)
 
     def pop_stride_chunk(self):
@@ -528,28 +619,94 @@ def run_paraformer_streaming_chunk(session: ASRSession, chunk: np.ndarray, is_fi
 
 def run_whisper_final(session: ASRSession) -> str:
     """西语通道：session 关闭时，把累积的全部音频一次性扔给 Whisper。"""
-    audio = session.full_audio_accum
+    audio = session.full_audio()
     if audio.size == 0 or not has_speech(audio):
         return ""
     with ws_whisper_lock:
         return run_whisper(audio, session.language)
 
 
+def run_whisper_preview(audio: np.ndarray) -> str:
+    """Serialize bounded Spanish preview decodes with final Whisper work."""
+    if audio.size == 0 or not has_speech(audio):
+        return ""
+    with ws_whisper_lock:
+        return run_whisper(audio, "es")
+
+
+async def _emit_spanish_preview(websocket, session: ASRSession, generation: int, audio: np.ndarray):
+    try:
+        raw_text = await asyncio.to_thread(run_whisper_preview, audio)
+        if session.closed or generation != session.es_preview_generation:
+            return
+        preview = sanitize_and_clean_text(raw_text)
+        if preview and preview != session.last_partial_text:
+            session.last_partial_text = preview
+            preview_audio_ms = round(audio.size / TARGET_SR * 1000)
+            await websocket.send(json.dumps({
+                "type": "partial",
+                "text": preview,
+                "stability": 0.55,
+                "audio_ms": preview_audio_ms,
+            }, ensure_ascii=False))
+            emit_metric(
+                "ws_asr_preview",
+                language="es",
+                audio_ms=preview_audio_ms,
+            )
+            if DEBUG:
+                print(f"📝 [WS preview][es] {preview!r}")
+    except asyncio.CancelledError:
+        raise
+    except websockets.exceptions.ConnectionClosed:
+        return
+    except Exception as exc:
+        print(f"⚠️ [WS preview][es] {type(exc).__name__}")
+    finally:
+        session.es_preview_in_flight = False
+
+
+async def maybe_schedule_spanish_preview(websocket, session: ASRSession):
+    # A remote final is authoritative. Do not let a later rolling preview take
+    # the Whisper lock while that final is waiting to run.
+    if WHISPER_FINAL_PENDING > 0:
+        return
+    if session.language != "es" or session.closed or session.es_preview_in_flight:
+        return
+    audio_samples = session.total_bytes_received // 2
+    if audio_samples < ES_PREVIEW_INITIAL_SAMPLES:
+        return
+    if session.es_preview_last_samples and audio_samples - session.es_preview_last_samples < ES_PREVIEW_INTERVAL_SAMPLES:
+        return
+    audio = session.full_audio()
+    if audio.size < ES_PREVIEW_INITIAL_SAMPLES:
+        return
+    session.es_preview_last_samples = audio_samples
+    session.es_preview_generation += 1
+    session.es_preview_in_flight = True
+    session.es_preview_task = asyncio.create_task(
+        _emit_spanish_preview(websocket, session, session.es_preview_generation, audio)
+    )
+
+
 async def handle_asr_session(websocket):
-    """单个 WebSocket 连接的完整生命周期处理。
-    协议：
-      1. 客户端连接后先发一个 JSON 文本帧 {"cmd":"start","language":"zh"}
-      2. 之后连续发二进制 PCM16 (16kHz mono little-endian) 帧
-      3. 客户端发 {"cmd":"stop"} 表示本段音频结束（VAD 判停 或 PTT 松开）
-      4. 服务端持续推送 {"type":"partial","text":...} 与
-         {"type":"final","text":...}
-      5. 客户端可以在收到一次 final 后，复用同一条连接继续发下一段
-         （发新的 {"cmd":"start",...} 重置会话状态），减少反复握手开销；
-         也可以每段话一条新连接，两种用法服务端都支持。
-    """
-    session: ASRSession = None
+    """Handle one bounded local ASR connection without retaining transcript content."""
+    global SESSION_SEMAPHORE, REMOTE_SESSION_SEMAPHORE, LOCAL_SESSION_SEMAPHORE, WHISPER_FINAL_PENDING
+    if SESSION_SEMAPHORE is None:
+        # Retained for compatibility/diagnostics. Language pools below enforce
+        # remote-first admission.
+        SESSION_SEMAPHORE = asyncio.BoundedSemaphore(MAX_CONCURRENT_SESSIONS)
+        REMOTE_SESSION_SEMAPHORE = asyncio.BoundedSemaphore(REMOTE_SESSION_SLOTS)
+        LOCAL_SESSION_SEMAPHORE = asyncio.BoundedSemaphore(LOCAL_SESSION_SLOTS)
+
+    session: ASRSession | None = None
+    session_slot = None
     peer = websocket.remote_address
-    print(f"🔌 [WS] 新连接建立: {peer}")
+    if DEBUG:
+        print(f"🔌 [WS] 新连接建立: {peer}")
+
+    async def send_error(code: str):
+        await websocket.send(json.dumps({"type": "error", "code": code}))
 
     try:
         async for message in websocket:
@@ -557,43 +714,86 @@ async def handle_asr_session(websocket):
                 try:
                     cmd_obj = json.loads(message)
                 except json.JSONDecodeError:
+                    await send_error("invalid_command")
                     continue
 
                 cmd = cmd_obj.get("cmd")
-
                 if cmd == "start":
+                    if session is not None:
+                        await send_error("session_already_active")
+                        continue
                     language = cmd_obj.get("language", "zh")
+                    if language not in {"zh", "es", "auto"}:
+                        await send_error("unsupported_language")
+                        continue
+                    # Keep a dedicated slot for the protected remote
+                    # Spanish conversation so local/stale sessions cannot force
+                    # the other speaker to repeat an utterance.
+                    target_slot = REMOTE_SESSION_SEMAPHORE if language in {"es", "auto"} else LOCAL_SESSION_SEMAPHORE
+                    try:
+                        await asyncio.wait_for(target_slot.acquire(), timeout=0.1)
+                    except asyncio.TimeoutError:
+                        await send_error("remote_busy" if language in {"es", "auto"} else "local_deferred_for_remote")
+                        continue
+                    session_slot = target_slot
                     session = ASRSession(language=language)
                     if DEBUG:
                         print(f"🎬 [WS] 会话开始 language={language} peer={peer}")
 
                 elif cmd == "stop":
                     if session is None:
+                        await send_error("no_active_session")
                         continue
-                    await _finalize_session(websocket, session)
-                    session = None
+                    # Suppress stale preview writes before the authoritative final.
+                    session.closed = True
+                    is_remote_final = session.language == "es"
+                    if is_remote_final:
+                        WHISPER_FINAL_PENDING += 1
+                    if session.es_preview_task is not None:
+                        session.es_preview_task.cancel()
+                    try:
+                        await _finalize_session(websocket, session)
+                    finally:
+                        if is_remote_final:
+                            WHISPER_FINAL_PENDING = max(0, WHISPER_FINAL_PENDING - 1)
+                        session = None
+                        if session_slot is not None:
+                            session_slot.release()
+                            session_slot = None
 
                 elif cmd == "ping":
                     await websocket.send(json.dumps({"type": "pong"}))
+                else:
+                    await send_error("unsupported_command")
 
             elif isinstance(message, bytes):
                 if session is None:
-                    # 客户端还没发 start 就发了音频，直接忽略这批数据，
-                    # 防止无主音频污染下一个会话。
+                    await send_error("no_active_session")
                     continue
-
-                session.feed_pcm16(message)
+                if len(message) > MAX_WS_FRAME_BYTES:
+                    await send_error("frame_too_large")
+                    await websocket.close(code=1009, reason="frame too large")
+                    break
+                try:
+                    session.feed_pcm16(message)
+                except ValueError as exc:
+                    await send_error(str(exc))
+                    await websocket.close(code=1009, reason="invalid audio")
+                    break
 
                 if session.language == "zh" and paraformer_model is not None:
                     await _drain_paraformer_partials(websocket, session)
-                # 西语通道不做 partial，只在 stop 时统一跑一次 Whisper。
+                elif session.language == "es":
+                    await maybe_schedule_spanish_preview(websocket, session)
 
     except websockets.exceptions.ConnectionClosed:
         if DEBUG:
             print(f"🔌 [WS] 连接已断开: {peer}")
     except Exception as e:
-        print(f"❌ [WS] 会话异常: {e}")
+        print(f"❌ ASR WebSocket session failed: {type(e).__name__}")
     finally:
+        if session_slot is not None:
+            session_slot.release()
         session = None
 
 
@@ -618,7 +818,9 @@ async def _drain_paraformer_partials(websocket, session: ASRSession):
         cleaned_preview = strip_hallucinations(session.last_partial_text)
         await websocket.send(json.dumps({
             "type": "partial",
-            "text": cleaned_preview
+            "text": cleaned_preview,
+            "stability": 0.65,
+            "audio_ms": round(session.total_bytes_received / 2 / TARGET_SR * 1000),
         }, ensure_ascii=False))
         if DEBUG:
             print(f"📝 [WS partial][{session.language}] {cleaned_preview!r}")
@@ -631,7 +833,7 @@ async def _finalize_session(websocket, session: ASRSession):
         再走一遍幻觉清洗/去重后作为 final 推送。
       - 西语：把全部累积音频一次性扔给 Whisper。
     """
-    t0 = time.time()
+    t0 = time.perf_counter()
     final_text = ""
 
     if session.language == "zh" and paraformer_model is not None:
@@ -642,25 +844,39 @@ async def _finalize_session(websocket, session: ASRSession):
         raw_full_text = session.last_partial_text + (tail_delta or "")
         final_text = sanitize_and_clean_text(raw_full_text)
         if DEBUG:
-            print(f"🏁 [WS final][zh/Paraformer] {final_text!r} (耗时 {time.time()-t0:.2f}s)")
+            print(f"🏁 [WS final][zh/Paraformer] {final_text!r} (耗时 {time.perf_counter()-t0:.2f}s)")
 
     elif session.language == "zh":
-        # Paraformer 未加载成功，降级用 Whisper 兜底（虽然不是它的强项，
-        # 但至少保证功能不中断）。
-        raw_text = await asyncio.to_thread(run_whisper, session.full_audio_accum, "zh")
+        # Paraformer 未加载成功，降级使用同一组有界音频块进行 Whisper 识别。
+        audio = session.full_audio()
+        raw_text = await asyncio.to_thread(run_whisper, audio, "zh") if audio.size else ""
         final_text = sanitize_and_clean_text(raw_text)
         if DEBUG:
-            print(f"🏁 [WS final][zh/Whisper兜底] {final_text!r} (耗时 {time.time()-t0:.2f}s)")
+            print(f"🏁 [WS final][zh/Whisper兜底] {final_text!r} (耗时 {time.perf_counter()-t0:.2f}s)")
 
     else:
         raw_text = await asyncio.to_thread(run_whisper_final, session)
         final_text = sanitize_and_clean_text(raw_text)
         if DEBUG:
-            print(f"🏁 [WS final][{session.language}/Whisper] {final_text!r} (耗时 {time.time()-t0:.2f}s)")
+            print(f"🏁 [WS final][{session.language}/Whisper] {final_text!r} (耗时 {time.perf_counter()-t0:.2f}s)")
 
+    audio_ms = round(session.total_bytes_received / 2 / TARGET_SR * 1000)
+    finalize_ms = round((time.perf_counter() - t0) * 1000)
+    emit_metric(
+        "ws_asr_final",
+        language=session.language,
+        audio_ms=audio_ms,
+        finalize_ms=finalize_ms,
+    )
     await websocket.send(json.dumps({
         "type": "final",
-        "text": final_text
+        "text": final_text,
+        "meta": {
+            "confidence": 0.90,
+            "audio_ms": audio_ms,
+            "finalize_ms": finalize_ms,
+            "no_speech_prob": 0.0,
+        },
     }, ensure_ascii=False))
 
 
@@ -670,7 +886,8 @@ async def _run_websocket_server():
         handle_asr_session,
         WS_HOST,
         WS_PORT,
-        max_size=None,       # 音频流可能持续较长时间，不限制单帧大小
+        max_size=MAX_WS_FRAME_BYTES,
+        max_queue=8,
         ping_interval=20,
         ping_timeout=20,
     ):

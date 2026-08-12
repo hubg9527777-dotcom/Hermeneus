@@ -339,6 +339,12 @@ private struct RemoteSubtitlePanel: View {
                     .font(.system(size: 13, weight: .bold))
             }
             .foregroundColor(Color(red: 0.2, green: 0.8, blue: 1.0))
+            Text(orchestrator.remotePipelineState.label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(orchestrator.remotePipelineState.isError ? .red : .white.opacity(0.55))
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background((orchestrator.remotePipelineState.isError ? Color.red : Color.white).opacity(0.12))
+                .cornerRadius(4)
             Spacer()
         }
         .padding(.horizontal, 12).padding(.top, 8)
@@ -352,9 +358,16 @@ private struct RemoteTurnRow: View {
             Text(turn.sourceText)
                 .font(.system(size: 15))
                 .foregroundColor(.white.opacity(0.85))
-            Text(turn.translatedText.isEmpty ? "翻译中..." : turn.translatedText)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundColor(Color(red: 0.2, green: 0.8, blue: 1.0))
+            HStack(spacing: 5) {
+                Text(turn.translatedText.isEmpty ? "翻译中..." : turn.translatedText)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(Color(red: 0.2, green: 0.8, blue: 1.0))
+                if turn.isTranslationPreview {
+                    Text("实时")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.55))
+                }
+            }
         }
         .id(turn.id)
         .padding(.bottom, 4)
@@ -400,6 +413,12 @@ private struct LocalSubtitlePanel: View {
                     .font(.system(size: 13, weight: .bold))
             }
             .foregroundColor(.yellow)
+            Text(orchestrator.localPipelineState.label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(orchestrator.localPipelineState.isError ? .red : .white.opacity(0.55))
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background((orchestrator.localPipelineState.isError ? Color.red : Color.white).opacity(0.12))
+                .cornerRadius(4)
             Spacer()
             Button(action: { Task { await orchestrator.replayLastLocalTranslation() } }) {
                 HStack(spacing: 4) {
@@ -463,8 +482,15 @@ private struct LocalTurnDisplayRow: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 sourceTextView
-                Text(turn.translatedText.isEmpty ? "翻译中..." : turn.translatedText)
-                    .font(.system(size: 17, weight: .bold)).foregroundColor(.yellow)
+                HStack(spacing: 5) {
+                    Text(turn.translatedText.isEmpty ? "翻译中..." : turn.translatedText)
+                        .font(.system(size: 17, weight: .bold)).foregroundColor(.yellow)
+                    if turn.isTranslationPreview {
+                        Text("实时")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.55))
+                    }
+                }
             }
             Spacer()
             if !turn.isSourcePartial {
