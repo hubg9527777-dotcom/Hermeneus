@@ -2,6 +2,17 @@
 
 本项目遵循语义化版本号。Git 标签 `vX.Y.Z` 是 macOS 发布构建的权威版本来源；构建工作流会将该标签写入 App 的 `CFBundleShortVersionString`。
 
+## [1.0.5] - 2026-08-12
+
+### Fixed
+
+- 为 Full DMG 与 Lite ZIP 在上传 Release 前生成 GitHub 构件来源证明（provenance）。
+- 发布流程仅保留 `v*` 标签推送触发，确保证明的工作流引用与 Release 标签一致。
+
+### Security
+
+- 采用 `actions/attest-build-provenance@v2` 对最终 Release 文件的 SHA-256 生成可验证的 SLSA provenance；继续使用默认 `GITHUB_TOKEN` 经 GitHub Actions 上传资产。
+
 ## [1.0.4] - 2026-08-12
 
 ### Added
