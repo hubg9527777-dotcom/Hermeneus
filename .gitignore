@@ -32,3 +32,6 @@ asr_server/build/
 
 # 运行日志（可能包含本机服务诊断，不纳入发布）
 *.log
+.manus_patches/
+HermeneusApp/App/.build/
+asr_server/__pycache__/

@@ -62,6 +62,17 @@ ollama pull qwen2.5:3b
 
 ------------------------------------------------------------------------
 
+# ②.5 安装本地运行时
+
+在终端执行：
+
+```bash
+brew install ollama ffmpeg
+ollama pull qwen2.5:3b
+```
+
+`ffmpeg` 仅在对普通单轨混音文件启用“**双人说话**”匿名分离时使用；Hermeneus 自己的双轨会议录音不依赖它。所有音频仍在本机处理。
+
 # ③ 安装 Hermeneus
 
 下载最新版：
@@ -87,7 +98,7 @@ ollama pull qwen2.5:3b
 </summary>
 ```
 ``` bash
-（请直接粘贴原 README 中完整的 Hermeneus_start.sh 脚本）
+Full DMG 已内置启动器；无需复制脚本。安装后直接执行下面的应用内路径。
 ```
 
 ```{=html}
@@ -96,13 +107,15 @@ ollama pull qwen2.5:3b
 
 ------------------------------------------------------------------------
 
-# ▶️ 启动（v1.0.5）
+# ▶️ 启动（v1.0.6）
 
 以后无需重复安装。打开终端后执行：
 
 ```bash
-~/Documents/Hermeneus/Hermeneus_start.sh
+/Applications/Hermeneus.app/Contents/Resources/Hermeneus_start.sh
 ```
+
+Full DMG 已包含实时 ASR、离线批量转译和匿名说话人分离组件；Lite ZIP 不含这些组件。首次使用前仍需安装本地 Ollama CLI，并执行 `ollama pull qwen2.5:3b` 下载翻译模型。普通单轨匿名双人分离首次还需要在 Hugging Face 接受 pyannote 模型条款并登录；音频不会上传。
 
 程序将自动：
 
@@ -149,7 +162,7 @@ ollama pull qwen2.5:3b
 更新后继续执行：
 
 ```bash
-~/Documents/Hermeneus/Hermeneus_start.sh
+/Applications/Hermeneus.app/Contents/Resources/Hermeneus_start.sh
 ```
 
 ------------------------------------------------------------------------
@@ -158,10 +171,10 @@ ollama pull qwen2.5:3b
 
   项目     要求
   -------- ------------------------
-  系统     macOS 13+
-  处理器   Apple Silicon 或 Intel
-  依赖     Homebrew、Ollama
-  模型     Qwen2.5
+  系统     macOS 14+（Apple Silicon）
+  处理器   Apple Silicon
+  依赖     Homebrew、Ollama、FFmpeg
+  模型     qwen2.5:3b
   权限     麦克风、屏幕录制
 
 ------------------------------------------------------------------------
@@ -181,7 +194,7 @@ ollama pull qwen2.5:3b
 重新执行：
 
 ```bash
-~/Documents/Hermeneus/Hermeneus_start.sh
+/Applications/Hermeneus.app/Contents/Resources/Hermeneus_start.sh
 ```
 
 若仍失败，请检查启动脚本或重新安装 Ollama。

@@ -24,6 +24,33 @@ public final class SCKAudioCapturer: NSObject, @unchecked Sendable, SCStreamOutp
     // The capture callback runs on one serial queue. Count drops without
     // retaining audio, so overload is observable without unbounded memory.
     private var droppedSampleChunkCount: UInt64 = 0
+    /// 可选的离线录音镜像回调。未设置时，实时采集路径的行为完全不变。
+    public var onAudioChunk: ((AudioSlice) -> Void)?
+    private let observerLock = NSLock()
+    private var audioObservers: [UUID: (AudioSlice) -> Void] = [:]
+
+    /// Adds a non-owning mirror callback. The real-time ring buffer remains primary.
+    @discardableResult
+    public func addAudioObserver(_ observer: @escaping (AudioSlice) -> Void) -> UUID {
+        let id = UUID()
+        observerLock.lock()
+        audioObservers[id] = observer
+        observerLock.unlock()
+        return id
+    }
+
+    public func removeAudioObserver(_ id: UUID) {
+        observerLock.lock()
+        audioObservers.removeValue(forKey: id)
+        observerLock.unlock()
+    }
+
+    private func notifyAudioObservers(_ slice: AudioSlice) {
+        observerLock.lock()
+        let observers = Array(audioObservers.values)
+        observerLock.unlock()
+        for observer in observers { observer(slice) }
+    }
 
     public override init() {
         var continuation: AsyncStream<[Float]>.Continuation!
@@ -88,6 +115,10 @@ public final class SCKAudioCapturer: NSObject, @unchecked Sendable, SCStreamOutp
         // 整块内存拷贝（memcpy），比逐元素 for 循环快，且从一开始就是 let，
         // 天然满足 Strict Concurrency 对并发捕获的要求，不需要额外快照变量。
         let samples = Array(UnsafeBufferPointer(start: floatData, count: frameLength))
+        // 录音镜像仅在离线录音模式由调用方显式设置；不影响 ringBuffer 的实时消费者。
+        let slice = AudioSlice(pcmData: samples, sampleRate: Int(pcmBuffer.format.sampleRate))
+        onAudioChunk?(slice)
+        notifyAudioObservers(slice)
 
         // yield 同步返回、极轻量（本质是把数据塞进队列），不阻塞音频回调线程，
         // 由唯一的消费者 Task 严格按到达顺序异步写入 ringBuffer。

@@ -62,6 +62,7 @@ jobs:
           # 二次断言：torch / funasr / modelscope 这类重型依赖的安装过程有时会
           # 通过 build-system 依赖间接把 setuptools 悄悄升级回 70+，
           # 在打包前强制拉回 69.5.1 并打印版本，避免"本地能过、CI 又崩"。
+          pip install "pyannote.audio==4.0.7" "torchcodec==0.16.0"
           pip install "setuptools==69.5.1" --force-reinstall --no-deps
           echo "🔒 最终 setuptools 版本锁定为:"
           pip show setuptools | grep -E "^Version"
@@ -72,6 +73,17 @@ jobs:
           cd asr_server
           pyinstaller --clean --noconfirm asr_server.spec
 
+      - name: Build Offline Diarizer Executable (ARM64)
+        run: |
+          set -e
+          cd asr_server
+          pyinstaller --clean --noconfirm offline_diarizer.spec
+      - name: Smoke Test Offline Components (Fail Fast)
+        run: |
+          set -e
+          chmod +x asr_server/dist/asr_server asr_server/dist/offline_diarizer
+          asr_server/dist/asr_server --offline-batch --help >/dev/null
+          asr_server/dist/offline_diarizer --help >/dev/null
       - name: Smoke Test ASR Binary (Fail Fast)
         run: |
           set -e
@@ -100,7 +112,7 @@ jobs:
       - name: Install create-dmg tool
         run: |
           brew untap aws/tap 2>/dev/null || true
-          brew install create-dmg
+          brew install create-dmg ffmpeg
 
       - name: Build SwiftUI App for Apple Silicon
         run: |
@@ -184,9 +196,11 @@ jobs:
           set -e
           VERSION="${{ steps.version.outputs.VERSION }}"
           ASR_BIN="$GITHUB_WORKSPACE/asr_server/dist/asr_server"
+          DIARIZER_BIN="$GITHUB_WORKSPACE/asr_server/dist/offline_diarizer"
+          STARTER="$GITHUB_WORKSPACE/Hermeneus_start.sh"
 
-          if [ ! -f "$ASR_BIN" ]; then
-            echo "❌ 未找到 PyInstaller 产物: $ASR_BIN"
+          if [ ! -f "$ASR_BIN" ] || [ ! -f "$DIARIZER_BIN" ] || [ ! -f "$STARTER" ]; then
+            echo "❌ 未找到 Full DMG 所需的本地组件"
             exit 1
           fi
 
@@ -198,7 +212,10 @@ jobs:
 
           mkdir -p "$FULL_APP/Contents/Resources"
           cp "$ASR_BIN" "$FULL_APP/Contents/Resources/asr_server"
-          chmod +x "$FULL_APP/Contents/Resources/asr_server"
+          cp "$DIARIZER_BIN" "$FULL_APP/Contents/Resources/offline_diarizer"
+          cp "$STARTER" "$FULL_APP/Contents/Resources/Hermeneus_start.sh"
+          chmod +x "$FULL_APP/Contents/Resources/asr_server" "$FULL_APP/Contents/Resources/offline_diarizer" "$FULL_APP/Contents/Resources/Hermeneus_start.sh"
+          bash "$GITHUB_WORKSPACE/scripts/verify_full_bundle.sh" "$FULL_APP"
 
           codesign --force --deep --sign - "$FULL_APP"
 

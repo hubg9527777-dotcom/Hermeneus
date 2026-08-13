@@ -69,6 +69,7 @@ hiddenimports += [
     "funasr.utils",
     "torch._C",
     "torch.utils.checkpoint",
+    "offline_batch_worker",
 ]
 
 # --------------------------------------------------------------------------

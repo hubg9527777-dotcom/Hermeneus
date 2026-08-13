@@ -15,6 +15,14 @@ v4 -> v5 核心变化：
 """
 
 import os
+import sys
+
+# Full DMG reuses the already-packaged ASR runtime for offline batch work.
+# Dispatch before importing real-time server dependencies or binding any ports.
+if "--offline-batch" in sys.argv:
+    sys.argv.remove("--offline-batch")
+    from offline_batch_worker import main as offline_batch_main
+    raise SystemExit(offline_batch_main())
 
 
 def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:

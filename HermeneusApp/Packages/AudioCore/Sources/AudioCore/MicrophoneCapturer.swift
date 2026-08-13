@@ -5,6 +5,8 @@ public final class MicrophoneCapturer: @unchecked Sendable {
     private let audioEngine = AVAudioEngine()
     private var isCapturing = false
     public var onAudioChunk: ((AudioSlice) -> Void)?
+    private let observerLock = NSLock()
+    private var audioObservers: [UUID: (AudioSlice) -> Void] = [:]
     
     public init() {
         // 监听系统音频路由变更通知（防止 TTS 播报打断麦克风）
@@ -19,6 +21,29 @@ public final class MicrophoneCapturer: @unchecked Sendable {
         }
     }
     
+    /// Adds a non-owning mirror callback. The primary ASR callback remains unchanged.
+    @discardableResult
+    public func addAudioObserver(_ observer: @escaping (AudioSlice) -> Void) -> UUID {
+        let id = UUID()
+        observerLock.lock()
+        audioObservers[id] = observer
+        observerLock.unlock()
+        return id
+    }
+
+    public func removeAudioObserver(_ id: UUID) {
+        observerLock.lock()
+        audioObservers.removeValue(forKey: id)
+        observerLock.unlock()
+    }
+
+    private func notifyAudioObservers(_ slice: AudioSlice) {
+        observerLock.lock()
+        let observers = Array(audioObservers.values)
+        observerLock.unlock()
+        for observer in observers { observer(slice) }
+    }
+
     public func startCapture() throws {
         guard !isCapturing else { return }
         try setupAndStart()
@@ -37,6 +62,7 @@ public final class MicrophoneCapturer: @unchecked Sendable {
             
             let slice = AudioSlice(pcmData: pcm, sampleRate: Int(format.sampleRate))
             self.onAudioChunk?(slice)
+            self.notifyAudioObservers(slice)
         }
         
         audioEngine.prepare()

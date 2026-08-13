@@ -468,6 +468,8 @@ public final class PipelineOrchestrator: ObservableObject {
     
     private let systemCapturer = SCKAudioCapturer()
     private let micCapturer = MicrophoneCapturer()
+    /// Optional meeting recorder mirrors existing capture streams. It never owns or replaces ASR capture.
+    let meetingRecorder = LiveMeetingDualTrackRecorder()
     private let asr = WebSocketASREngine()
     private let contextEngine = ConversationContextEngine()
     private lazy var translator = OllamaTranslationEngine(
@@ -561,6 +563,17 @@ public final class PipelineOrchestrator: ObservableObject {
         self.scheduler = ClauseSpeechScheduler(ttsEngine: ttsEngine)
     }
     
+    func startMeetingRecording(in rootURL: URL) throws {
+        guard isRunning else {
+            throw NSError(domain: "HermeneusMeetingRecording", code: 1, userInfo: [NSLocalizedDescriptionKey: "请先启动同传，再开始会议录音。"])
+        }
+        try meetingRecorder.start(in: rootURL, microphone: micCapturer, systemAudio: systemCapturer)
+    }
+
+    func stopMeetingRecording() throws -> OfflineRecordingArtifact {
+        try meetingRecorder.stop()
+    }
+
     public func startSession() async {
         guard !isRunning else { return }
         isRunning = true
@@ -591,6 +604,8 @@ public final class PipelineOrchestrator: ObservableObject {
     public func stopSession() async {
         guard isRunning else { return }
         isRunning = false
+        // Finalize the mirror before capture engines stop, preserving the last received audio.
+        if meetingRecorder.isRecording { _ = try? meetingRecorder.stop() }
         micCapturer.stopCapture()
         try? await systemCapturer.stopCapture()
         pttController.cancelActive()

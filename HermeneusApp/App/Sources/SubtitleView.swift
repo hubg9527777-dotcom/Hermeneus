@@ -102,9 +102,14 @@ public struct SubtitleView: View {
     @ObservedObject var orchestrator: PipelineOrchestrator
     @ObservedObject var copyState = CopyMenuState.shared
     @StateObject private var hotkeyMonitor = PTTHotkeyMonitor()
+    @Environment(\.openWindow) private var openWindow
+    @ObservedObject private var offlineTools: OfflineToolsPrototypeController
     
-    public init(orchestrator: PipelineOrchestrator) {
+    init(
+        orchestrator: PipelineOrchestrator,
+        offlineTools: OfflineToolsPrototypeController    ) {
         self.orchestrator = orchestrator
+        self.offlineTools = offlineTools
     }
     
     private func copyToClipboard(_ text: String) {
@@ -192,6 +197,7 @@ public struct SubtitleView: View {
             )
             
             inputModeSwitcher
+            offlineToolsButton
             
             Spacer()
             
@@ -222,6 +228,22 @@ public struct SubtitleView: View {
         .buttonStyle(.plain)
     }
     
+    private var offlineToolsButton: some View {
+        Button(action: { openWindow(id: "offline-tools") }) {
+            HStack(spacing: 4) {
+                Image(systemName: "externaldrive.badge.checkmark")
+                Text("离线工具")
+            }
+            .font(.system(size: 11, weight: .bold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Color.teal.opacity(0.65))
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .help("打开可独立移动的离线录音、文件转译与说话人标签工作台")
+    }
+
     private var pttStatusIndicator: some View {
         HStack(spacing: 4) {
             Circle()
@@ -339,11 +361,11 @@ private struct RemoteSubtitlePanel: View {
                     .font(.system(size: 13, weight: .bold))
             }
             .foregroundColor(Color(red: 0.2, green: 0.8, blue: 1.0))
-            Text(orchestrator.remotePipelineState.label)
+            Text(orchestrator.isListeningRemote ? orchestrator.remotePipelineState.label : "已暂停")
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(orchestrator.remotePipelineState.isError ? .red : .white.opacity(0.55))
+                .foregroundColor(orchestrator.isListeningRemote && orchestrator.remotePipelineState.isError ? .red : .white.opacity(0.55))
                 .padding(.horizontal, 6).padding(.vertical, 2)
-                .background((orchestrator.remotePipelineState.isError ? Color.red : Color.white).opacity(0.12))
+                .background((orchestrator.isListeningRemote && orchestrator.remotePipelineState.isError ? Color.red : Color.white).opacity(0.12))
                 .cornerRadius(4)
             Spacer()
         }
@@ -413,11 +435,11 @@ private struct LocalSubtitlePanel: View {
                     .font(.system(size: 13, weight: .bold))
             }
             .foregroundColor(.yellow)
-            Text(orchestrator.localPipelineState.label)
+            Text(orchestrator.isSpeakingLocal ? orchestrator.localPipelineState.label : "已暂停")
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(orchestrator.localPipelineState.isError ? .red : .white.opacity(0.55))
+                .foregroundColor(orchestrator.isSpeakingLocal && orchestrator.localPipelineState.isError ? .red : .white.opacity(0.55))
                 .padding(.horizontal, 6).padding(.vertical, 2)
-                .background((orchestrator.localPipelineState.isError ? Color.red : Color.white).opacity(0.12))
+                .background((orchestrator.isSpeakingLocal && orchestrator.localPipelineState.isError ? Color.red : Color.white).opacity(0.12))
                 .cornerRadius(4)
             Spacer()
             Button(action: { Task { await orchestrator.replayLastLocalTranslation() } }) {
