@@ -281,7 +281,7 @@ final class OfflineDualTrackRecorder: ObservableObject {
 
     private func startTimer() {
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.elapsedSeconds += 1
             }
         }
@@ -428,7 +428,7 @@ final class LiveMeetingDualTrackRecorder: ObservableObject {
             elapsedSeconds = 0
             statusMessage = "正在镜像录制会议双轨；实时识别优先"
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.elapsedSeconds += 1 }
+                Task { @MainActor [weak self] in self?.elapsedSeconds += 1 }
             }
         } catch {
             cleanup(abort: true)

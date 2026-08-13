@@ -75,7 +75,7 @@ final class OfflineBatchRunner: ObservableObject {
         process.terminationHandler = { [weak self] task in
             let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
             let errorText = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.finish(task: task, errorText: errorText, root: secureRoot, jobID: jobID)
             }
         }
@@ -131,7 +131,7 @@ final class OfflineBatchRunner: ObservableObject {
         progressTimer?.invalidate()
         let url = root.appendingPathComponent("Hermeneus Data/jobs/\(jobID)/progress.json")
         progressTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.readProgress(url) }
+            Task { @MainActor [weak self] in self?.readProgress(url) }
         }
     }
 
