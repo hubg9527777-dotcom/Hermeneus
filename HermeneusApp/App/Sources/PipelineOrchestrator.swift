@@ -127,6 +127,13 @@ public actor ContinuousStreamSegmenter {
         !buffer.isEmpty
     }
 
+    /// Discard an unfinished automatic utterance when the user explicitly
+    /// takes over with push-to-talk. No mixed automatic/PTT sentence reaches ASR.
+    public func reset() {
+        buffer.removeAll(keepingCapacity: true)
+        silenceMs = 0
+    }
+
     private func flushBuffer() -> [Float] {
         let chunk = buffer
         buffer.removeAll()
@@ -299,12 +306,24 @@ public enum LocalInputMode: String, Sendable {
     case pushToTalk
 }
 
+/// The persistent user-selected mode stays separate from the short-lived
+/// capture condition inside it. This makes manual override in automatic mode
+/// deterministic without switching the top-level mode.
+private enum LocalCaptureState {
+    case automaticListening
+    case manualPressed
+    case manualFinalizing
+    case pushToTalkIdle
+}
+
 @MainActor
 private final class PushToTalkController {
     private let asrEngine: WebSocketASREngine
     private var activeSession: WebSocketStreamingSession?
     private var consumeTask: Task<Void, Never>?
-    private var isActive = false
+    private var isPressedState = false
+    private var finishWhenReady = false
+    private var pendingFrames: [(pcm: [Float], sampleRate: Int)] = []
     
     var onPartial: ((String) -> Void)?
     var onFinal: ((String) -> Void)?
@@ -313,15 +332,32 @@ private final class PushToTalkController {
         self.asrEngine = asrEngine
     }
     
-    var isPressed: Bool { isActive }
+    var isPressed: Bool { isPressedState }
     
-    func press(language: String) {
-        guard !isActive else { return }
-        isActive = true
+    /// In automatic mode the previous streaming session needs a brief window
+    /// to release the local ASR slot. Capture frames during that window so the
+    /// first syllables of an explicit PTT utterance are never lost.
+    func press(language: String, sessionStartDelayNs: UInt64 = 0) {
+        guard !isPressedState else { return }
+        isPressedState = true
+        finishWhenReady = false
+        pendingFrames.removeAll(keepingCapacity: true)
         consumeTask = Task {
+            if sessionStartDelayNs > 0 {
+                try? await Task.sleep(nanoseconds: sessionStartDelayNs)
+            }
+            guard !Task.isCancelled, self.isPressedState || self.finishWhenReady else { return }
             do {
                 let session = try await asrEngine.startStreamingSession(language: language)
                 self.activeSession = session
+                let bufferedFrames = self.pendingFrames
+                self.pendingFrames.removeAll(keepingCapacity: true)
+                for frame in bufferedFrames {
+                    await session.feed(pcm: frame.pcm, sampleRate: frame.sampleRate)
+                }
+                if self.finishWhenReady {
+                    await session.finish()
+                }
                 for try await update in session.updates {
                     switch update {
                     case .partial(let text, _):
@@ -330,27 +366,42 @@ private final class PushToTalkController {
                         self.onFinal?(text)
                     }
                 }
+            } catch is CancellationError {
+                // A canceled PTT turn is intentionally silent.
             } catch {
                 print("⚠️ [PTT] 流式会话异常: \(error)")
             }
             self.activeSession = nil
+            self.pendingFrames.removeAll(keepingCapacity: true)
+            self.finishWhenReady = false
+            self.isPressedState = false
         }
     }
     
     func feed(pcm: [Float], sampleRate: Int) {
-        guard isActive, let session = activeSession else { return }
-        Task { await session.feed(pcm: pcm, sampleRate: sampleRate) }
+        guard isPressedState, !pcm.isEmpty else { return }
+        if let session = activeSession {
+            Task { await session.feed(pcm: pcm, sampleRate: sampleRate) }
+            return
+        }
+        pendingFrames.append((pcm: pcm, sampleRate: sampleRate))
+        if pendingFrames.count > 48 {
+            pendingFrames.removeFirst(pendingFrames.count - 48)
+        }
     }
     
     func release() {
-        guard isActive else { return }
-        isActive = false
+        guard isPressedState else { return }
+        isPressedState = false
+        finishWhenReady = true
         guard let session = activeSession else { return }
         Task { await session.finish() }
     }
     
     func cancelActive() {
-        isActive = false
+        isPressedState = false
+        finishWhenReady = false
+        pendingFrames.removeAll(keepingCapacity: true)
         consumeTask?.cancel()
         guard let session = activeSession else { return }
         Task { await session.cancel() }
@@ -486,7 +537,15 @@ public final class PipelineOrchestrator: ObservableObject {
     private var scheduler: ClauseSpeechScheduler?
     private let micBufferActor = MicAudioBuffer()
     private let remoteSegmenter = ContinuousStreamSegmenter(sampleRate: 48000)
-    private let localSegmenter = ContinuousStreamSegmenter(sampleRate: 48000)
+    // Local speech may be repeated, so use a faster final boundary without
+    // changing the protected remote Spanish channel's conservative timing.
+    private let localSegmenter = ContinuousStreamSegmenter(
+        sampleRate: 48000,
+        minChunkSeconds: 0.55,
+        quickSilenceMs: 450,
+        conservativeSilenceMs: 650,
+        quickSilenceMinBufferSeconds: 0.9
+    )
     
     private lazy var remoteQueue = SegmentProcessingQueue(maxQueueDepth: 2) { [weak self] seg in
         await self?.processRemoteSegment(seg)
@@ -495,33 +554,33 @@ public final class PipelineOrchestrator: ObservableObject {
         await self?.processLocalSegmentAutoVAD(seg)
     }
     
-    private lazy var pttController: PushToTalkController = {
-        let controller = PushToTalkController(asrEngine: asr)
-        controller.onPartial = { [weak self] text in
-            self?.handlePTTPartial(text)
-        }
-        controller.onFinal = { [weak self] text in
-            Task { await self?.handlePTTFinal(text) }
-        }
-        return controller
-    }()
-    
-    private var pttActiveTurnId: UUID?
-
-    // Automatic VAD now controls when a streaming session starts and stops;
-    // it no longer delays the first ASR request until the whole utterance ends.
-    private lazy var localAutoController: AutomaticStreamingController = {
+    // One local streaming controller owns every Chinese turn. The top-level
+    // mode decides how a turn begins; it never creates a competing ASR session.
+    private lazy var localStreamController: AutomaticStreamingController = {
         let controller = AutomaticStreamingController(asrEngine: asr)
         controller.onPartial = { [weak self] text in
-            self?.handleLocalAutoPartial(text)
+            guard let self else { return }
+            if self.localCaptureState == .manualPressed || self.localCaptureState == .manualFinalizing {
+                self.handlePTTPartial(text)
+            } else {
+                self.handleLocalAutoPartial(text)
+            }
         }
         controller.onFinal = { [weak self] text in
             Task { @MainActor in
-                await self?.handleLocalAutoFinal(text)
+                guard let self else { return }
+                if self.localCaptureState == .manualPressed || self.localCaptureState == .manualFinalizing {
+                    await self.handlePTTFinal(text)
+                    self.completeManualTurn()
+                } else {
+                    await self.handleLocalAutoFinal(text)
+                }
             }
         }
         return controller
     }()
+    private var localCaptureState: LocalCaptureState = .automaticListening
+    private var pttActiveTurnId: UUID?
     private var localAutoTurnId: UUID?
     private var localPreviewTask: Task<Void, Never>?
     private var localPreviewGeneration: UInt = 0
@@ -577,8 +636,15 @@ public final class PipelineOrchestrator: ObservableObject {
     public func startSession() async {
         guard !isRunning else { return }
         isRunning = true
+        localCaptureState = localInputMode == .automaticVAD ? .automaticListening : .pushToTalkIdle
         remotePipelineState = .listening
         localPipelineState = .listening
+        // Begin loading the selected local model before the first user turn.
+        // This has no visible output and does not enter conversation context.
+        Task.detached(priority: .userInitiated) { [translator] in
+            let warmed = await translator.warmUp()
+            print(warmed ? "✅ 本地翻译模型预热完成" : "⚠️ 本地翻译模型预热未完成；首句仍会自动重试")
+        }
         AVCaptureDevice.requestAccess(for: .audio) { granted in
             if granted {
                 Task { @MainActor in
@@ -608,9 +674,10 @@ public final class PipelineOrchestrator: ObservableObject {
         if meetingRecorder.isRecording { _ = try? meetingRecorder.stop() }
         micCapturer.stopCapture()
         try? await systemCapturer.stopCapture()
-        pttController.cancelActive()
-        localAutoController.cancelActive()
+        localStreamController.cancelActive()
         remoteAutoController.cancelActive()
+        localCaptureState = localInputMode == .automaticVAD ? .automaticListening : .pushToTalkIdle
+        isPTTPressed = false
         invalidateLocalPreview()
         invalidateRemotePreview()
         remoteBuffer.reset()
@@ -630,10 +697,15 @@ public final class PipelineOrchestrator: ObservableObject {
             Task { @MainActor in
                 switch self.localInputMode {
                 case .automaticVAD:
-                    await bufferActor.append(pcm: slice.pcmData)
+                    if self.localCaptureState == .manualPressed {
+                        // Option is an explicit low-latency override in automatic mode.
+                        self.localStreamController.feed(pcm: slice.pcmData, sampleRate: slice.sampleRate)
+                    } else {
+                        await bufferActor.append(pcm: slice.pcmData)
+                    }
                 case .pushToTalk:
-                    if self.pttController.isPressed {
-                        self.pttController.feed(pcm: slice.pcmData, sampleRate: slice.sampleRate)
+                    if self.localCaptureState == .manualPressed {
+                        self.localStreamController.feed(pcm: slice.pcmData, sampleRate: slice.sampleRate)
                     }
                 }
             }
@@ -694,7 +766,9 @@ public final class PipelineOrchestrator: ObservableObject {
                 let speaking = await self.isSpeakingLocal
                 let ttsPlaying = await self.isTTSPlaying
                 let remotePriority = await self.isRemotePriorityActive
-                if !speaking || ttsPlaying || remotePriority {
+                let captureState = await self.localCaptureState
+                let manualOverrideActive = captureState == .manualPressed || captureState == .manualFinalizing
+                if !speaking || ttsPlaying || remotePriority || manualOverrideActive {
                     _ = await self.micBufferActor.flush()
                     continue
                 }
@@ -708,10 +782,10 @@ public final class PipelineOrchestrator: ObservableObject {
 
                 if wasActive || isActive {
                     Task { @MainActor in
-                        self.localAutoController.begin(language: "zh")
-                        self.localAutoController.feed(pcm: pcmChunk, sampleRate: 48000)
+                        self.localStreamController.begin(language: "zh")
+                        self.localStreamController.feed(pcm: pcmChunk, sampleRate: 48000)
                         if shouldFinish {
-                            self.localAutoController.finish()
+                            self.localStreamController.finish()
                         }
                     }
                 }
@@ -723,11 +797,11 @@ public final class PipelineOrchestrator: ObservableObject {
         guard !isRemotePriorityActive else { return }
         isRemotePriorityActive = true
         invalidateLocalPreview()
-        localAutoController.cancelActive()
-        if pttController.isPressed {
-            pttController.cancelActive()
+        localStreamController.cancelActive()
+        if localCaptureState == .manualPressed || localCaptureState == .manualFinalizing {
             isPTTPressed = false
         }
+        localCaptureState = localInputMode == .automaticVAD ? .automaticListening : .pushToTalkIdle
         if !localPipelineState.isError {
             localPipelineState = .deferredForRemote
         }
@@ -880,7 +954,9 @@ public final class PipelineOrchestrator: ObservableObject {
         let turnId = localBuffer.updateActivePartialTurn(sourceText: text)
         localAutoTurnId = turnId
         scheduleUIRefresh()
-        startLocalPreviewTranslation(sourceText: text, turnId: turnId)
+        // A partial is for immediate Chinese visibility only. Starting and
+        // canceling Ollama requests for every growing prefix competed with the
+        // authoritative final request and caused the observed 1–3s jitter.
     }
 
     private func handleLocalAutoFinal(_ text: String) async {
@@ -1039,27 +1115,50 @@ public final class PipelineOrchestrator: ObservableObject {
     }
     
     public func pressToTalkStart() {
-        guard localInputMode == .pushToTalk, isRunning, !isRemotePriorityActive else {
+        guard isRunning, !isRemotePriorityActive else {
             if isRemotePriorityActive { localPipelineState = .deferredForRemote }
             return
         }
+        guard localCaptureState == .automaticListening || localCaptureState == .pushToTalkIdle else { return }
+
+        // This is a sub-state transition only. localInputMode remains unchanged,
+        // so release has an unambiguous target: automatic listening or PTT idle.
+        if localInputMode == .automaticVAD {
+            localAutoTurnId = nil
+            invalidateLocalPreview()
+            Task { [localSegmenter, micBufferActor] in
+                await localSegmenter.reset()
+                _ = await micBufferActor.flush()
+            }
+        }
+        localCaptureState = .manualPressed
         isPTTPressed = true
-        pttController.press(language: "zh")
+        localPipelineState = .listening
+        localStreamController.begin(language: "zh")
     }
     
     public func pressToTalkEnd() {
-        guard localInputMode == .pushToTalk else { return }
+        guard localCaptureState == .manualPressed else { return }
         isPTTPressed = false
-        pttController.release()
+        localCaptureState = .manualFinalizing
+        // The same local ASR stream is finalized; its callback restores the
+        // correct persistent mode only after the final text is handled.
+        localStreamController.finish()
+    }
+
+    private func completeManualTurn() {
+        localCaptureState = localInputMode == .automaticVAD ? .automaticListening : .pushToTalkIdle
+        if !localPipelineState.isError && !isRemotePriorityActive {
+            localPipelineState = .listening
+        }
     }
     
     public func setLocalInputMode(_ mode: LocalInputMode) {
         guard mode != localInputMode else { return }
-        if localInputMode == .pushToTalk, pttController.isPressed {
-            pttController.cancelActive()
-            isPTTPressed = false
-        }
+        localStreamController.cancelActive()
+        isPTTPressed = false
         localInputMode = mode
+        localCaptureState = mode == .automaticVAD ? .automaticListening : .pushToTalkIdle
     }
     
     public func retranslateAndSpeak(turnId: UUID, newChineseText: String) async {

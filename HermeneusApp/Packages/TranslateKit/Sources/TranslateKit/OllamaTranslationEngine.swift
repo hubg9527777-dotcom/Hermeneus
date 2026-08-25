@@ -43,6 +43,29 @@ public actor OllamaTranslationEngine: TranslationEngine {
         modelName = newModelName
     }
 
+    /// Load the selected local model before the first user utterance. The empty
+    /// prompt is not displayed, translated, added to context, or persisted.
+    public func warmUp() async -> Bool {
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = min(requestTimeout, 20.0)
+        let body: [String: Any] = [
+            "model": modelName,
+            "prompt": "",
+            "stream": false,
+            "keep_alive": keepAlive,
+            "options": ["num_predict": 1]
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        request.httpBody = data
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else {
+            return false
+        }
+        return http.statusCode == 200
+    }
+
     public func translate(
         text: String,
         contextHistory: [TranslationContext],

@@ -88,24 +88,37 @@ jobs:
         run: |
           set -e
           BIN="asr_server/dist/asr_server"
+          SOURCE="asr_server/server.py"
           if [ ! -f "$BIN" ]; then
             echo "❌ 未找到打包产物: $BIN"
             exit 1
           fi
           chmod +x "$BIN"
 
-          echo "🔎 冒烟测试：启动二进制并观察前 5 秒是否存活（提前捕获 pyi_rth_pkgres / NullProvider 之类的启动期崩溃，不用等到 DMG 打完才发现）..."
+          FREEZE_LINE="$(grep -n 'multiprocessing.freeze_support()' "$SOURCE" | head -n 1 | cut -d: -f1)"
+          TORCH_LINE="$(grep -n '^import torch$' "$SOURCE" | head -n 1 | cut -d: -f1)"
+          if [ -z "$FREEZE_LINE" ] || [ -z "$TORCH_LINE" ] || [ "$FREEZE_LINE" -ge "$TORCH_LINE" ]; then
+            echo "❌ 冻结多进程保护必须在重型模型导入前执行。"
+            exit 1
+          fi
+
+          echo "🔎 冒烟测试：验证冻结入口及前 20 秒运行状态，提前捕获多进程递归、临时 Python 加载失败和启动期崩溃..."
           "$BIN" > /tmp/asr_smoke.log 2>&1 &
           SMOKE_PID=$!
-          sleep 5
+          sleep 20
 
           if ! kill -0 "$SMOKE_PID" 2>/dev/null; then
             echo "❌ ASR 二进制在启动阶段崩溃，完整日志如下："
             cat /tmp/asr_smoke.log
             exit 1
           fi
+          if grep -E 'Failed to execute script|Failed to load Python shared library|address already in use' /tmp/asr_smoke.log; then
+            echo "❌ ASR 二进制出现冻结运行时异常，完整日志如下："
+            cat /tmp/asr_smoke.log
+            exit 1
+          fi
 
-          echo "✅ 二进制存活 5 秒，冒烟测试通过"
+          echo "✅ 冻结入口与 20 秒运行时冒烟测试通过"
           kill "$SMOKE_PID" 2>/dev/null || true
           wait "$SMOKE_PID" 2>/dev/null || true
 

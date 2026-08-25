@@ -88,12 +88,21 @@ public final class SCKAudioCapturer: NSObject, @unchecked Sendable, SCStreamOutp
         let filter = SCContentFilter(display: mainDisplay, excludingApplications: excludedApps, exceptingWindows: [])
 
         let config = SCStreamConfiguration()
+        // ScreenCaptureKit streams are display-backed even when this consumer
+        // only needs system audio. Register a discard-only screen output and
+        // throttle it to one tiny frame per second; otherwise WindowServer
+        // repeatedly reports unhandled screen output at display-frame cadence.
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+        config.queueDepth = 1
+        config.width = 2
+        config.height = 2
         config.capturesAudio = true
         config.excludesCurrentProcessAudio = true // 从 macOS 内核屏蔽本进程 TTS 播报音，彻底斩断死循环
         config.sampleRate = 48000
         config.channelCount = 1
 
         stream = SCStream(filter: filter, configuration: config, delegate: nil)
+        try stream?.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue(label: "SCKVideoDiscardQueue"))
         try stream?.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "SCKAudioQueue"))
         try await stream?.startCapture()
         print("🎧 系统音频采集引擎（防自激隔离模式）已就绪！")

@@ -17,15 +17,49 @@ set -uo pipefail
 
 readonly APP_NAME="Hermeneus"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly APP_PATH="/Applications/${APP_NAME}.app"
-readonly ASR_BIN="${APP_PATH}/Contents/Resources/asr_server"
+readonly INSTALLED_APP_PATH="/Applications/${APP_NAME}.app"
+readonly INSTALLED_ASR_BIN="${INSTALLED_APP_PATH}/Contents/Resources/asr_server"
+readonly PROJECT_APP_PATH="${SCRIPT_DIR}/HermeneusApp/App/.build/release/Hermeneus.app"
+readonly PROJECT_APP_BIN="${PROJECT_APP_PATH}/Contents/MacOS/AILiveInterpreterApp"
+readonly DEV_APP_BIN="${SCRIPT_DIR}/HermeneusApp/App/.build/release/AILiveInterpreterApp"
+readonly DEV_ASR_BIN="${SCRIPT_DIR}/asr_server/dist/asr_server"
 readonly ASR_SOURCE="${SCRIPT_DIR}/asr_server/server.py"
+readonly DEV_PYTHON_BIN="/opt/homebrew/bin/python3"
+# A project checkout should exercise the locally built Full bundle first. This
+# keeps the GUI, its bundled ASR, and the single-command launcher on one tested
+# local version without touching /Applications. A released Full DMG remains the
+# fallback when the project bundle is absent.
+if [[ -d "${PROJECT_APP_PATH}" && -x "${PROJECT_APP_BIN}" && -x "${DEV_ASR_BIN}" ]]; then
+    readonly APP_PATH="${PROJECT_APP_PATH}"
+    readonly APP_EXECUTABLE="${PROJECT_APP_BIN}"
+    readonly ASR_BIN="${DEV_ASR_BIN}"
+    readonly APP_LAUNCH_MODE="project"
+elif [[ -d "${INSTALLED_APP_PATH}" && -x "${INSTALLED_ASR_BIN}" ]]; then
+    readonly APP_PATH="${INSTALLED_APP_PATH}"
+    readonly APP_EXECUTABLE="${INSTALLED_APP_PATH}/Contents/MacOS/AILiveInterpreterApp"
+    readonly ASR_BIN="${INSTALLED_ASR_BIN}"
+    readonly APP_LAUNCH_MODE="installed"
+elif [[ -x "${DEV_APP_BIN}" && -f "${ASR_SOURCE}" && -x "${DEV_PYTHON_BIN}" ]]; then
+    readonly APP_PATH="${DEV_APP_BIN}"
+    readonly APP_EXECUTABLE="${DEV_APP_BIN}"
+    readonly ASR_BIN="${DEV_ASR_BIN}"
+    readonly APP_LAUNCH_MODE="development"
+else
+    readonly APP_PATH="${INSTALLED_APP_PATH}"
+    readonly APP_EXECUTABLE="${INSTALLED_APP_PATH}/Contents/MacOS/AILiveInterpreterApp"
+    readonly ASR_BIN="${INSTALLED_ASR_BIN}"
+    readonly APP_LAUNCH_MODE="missing"
+fi
+
 readonly ASR_LOG="${TMPDIR:-/tmp}/hermeneus-app-asr.log"
 readonly ASR_PID_FILE="${TMPDIR:-/tmp}/hermeneus-app-asr.pid"
 readonly OLLAMA_LOG="${TMPDIR:-/tmp}/hermeneus-ollama.log"
 readonly ASR_PORTS=(8080 8081)
 readonly OLLAMA_PORT=11434
-readonly ASR_HEALTH_TIMEOUT_SEC="${HERMENEUS_ASR_TIMEOUT_SEC:-30}"
+# Full and development ASR builds both perform local model initialization on a
+# first start. Keep one conservative, user-overridable cold-start window so the
+# launcher never abandons a healthy Full ASR while models are still loading.
+readonly ASR_HEALTH_TIMEOUT_SEC="${HERMENEUS_ASR_TIMEOUT_SEC:-150}"
 readonly OLLAMA_HEALTH_TIMEOUT_SEC="${HERMENEUS_OLLAMA_TIMEOUT_SEC:-10}"
 readonly OLLAMA_API_URL="http://127.0.0.1:${OLLAMA_PORT}/api/tags"
 readonly OLLAMA_GENERATE_URL="http://127.0.0.1:${OLLAMA_PORT}/api/generate"
@@ -60,7 +94,17 @@ is_hermeneus_asr_pid() {
     local pid="$1"
     local command
     command="$(command_for_pid "$pid")"
-    [[ "$command" == *"${ASR_SOURCE}"* || "$command" == *"${ASR_BIN}"* ]]
+    [[ "$command" == *"${ASR_SOURCE}"* || "$command" == *"${ASR_BIN}"* || "$command" == *"${INSTALLED_ASR_BIN}"* || "$command" == *"${DEV_ASR_BIN}"* ]]
+}
+asr_pid_matches_active_mode() {
+    local pid="$1"
+    local command
+    command="$(command_for_pid "$pid")"
+    if [[ "$APP_LAUNCH_MODE" == "development" ]]; then
+        [[ "$command" == *"${ASR_SOURCE}"* ]]
+    else
+        [[ "$command" == *"${ASR_BIN}"* ]]
+    fi
 }
 
 asr_listener_pid_set() {
@@ -99,7 +143,19 @@ stop_confirmed_hermeneus_asr() {
         [[ -z "$remaining" ]] && return 0
         sleep 1
     done
-    fail "本项目 ASR 未在 5 秒内停止；为避免数据/模型损坏，启动器不会强制 kill -9。"
+    warn "本项目 ASR 未响应 SIGTERM，发送可中断的 SIGINT 后继续等待。"
+    for pid in $pids; do
+        kill -INT "$pid" 2>/dev/null || true
+    done
+    for _ in 1 2 3 4 5; do
+        local remaining=""
+        for pid in $pids; do
+            if kill -0 "$pid" 2>/dev/null; then remaining="${remaining} ${pid}"; fi
+        done
+        [[ -z "$remaining" ]] && return 0
+        sleep 1
+    done
+    fail "本项目 ASR 未在受控停止窗口内退出；为避免数据/模型损坏，启动器不会强制 kill -9。"
     return 1
 }
 
@@ -135,14 +191,21 @@ start_or_reuse_asr() {
 
     if asr_ports_ready && [[ "$pid_count" == "1" ]]; then
         first_pid="$(printf '%s\n' "$pids" | head -n 1)"
-        if is_hermeneus_asr_pid "$first_pid"; then
+        if asr_pid_matches_active_mode "$first_pid"; then
             printf '%s\n' "$first_pid" >"$ASR_PID_FILE"
             ok "复用健康的本项目 ASR（PID ${first_pid}，端口 ${ASR_PORTS[0]}/${ASR_PORTS[1]}）"
             return 0
         fi
-        fail "ASR 端口已被非 Hermeneus 进程占用；不会停止它们。"
-        show_asr_conflicts
-        return 1
+        if is_hermeneus_asr_pid "$first_pid"; then
+            warn "检测到不属于当前启动模式的本项目 ASR，正在进行受控重启。"
+            stop_confirmed_hermeneus_asr "$first_pid" || return 1
+            pids=""
+            pid_count=0
+        else
+            fail "ASR 端口已被非 Hermeneus 进程占用；不会停止它们。"
+            show_asr_conflicts
+            return 1
+        fi
     fi
 
     if [[ -n "$pids" ]]; then
@@ -175,11 +238,21 @@ start_or_reuse_asr() {
         rm -f "$ASR_PID_FILE"
     fi
 
-    [[ -f "$ASR_BIN" ]] || { fail "未在 App 包内找到 asr_server: ${ASR_BIN}"; return 1; }
-    chmod +x "$ASR_BIN"
     log "   正在启动 Hermeneus ASR；日志：${ASR_LOG}"
-    nohup "$ASR_BIN" >"$ASR_LOG" 2>&1 &
-    local asr_pid=$!
+    local asr_pid
+    if [[ "$APP_LAUNCH_MODE" == "development" ]]; then
+        [[ -x "$DEV_PYTHON_BIN" && -f "$ASR_SOURCE" ]] || {
+            fail "未找到开发版 ASR 源服务或 Python：${DEV_PYTHON_BIN}"
+            return 1
+        }
+        nohup "$DEV_PYTHON_BIN" "$ASR_SOURCE" >"$ASR_LOG" 2>&1 &
+        asr_pid=$!
+    else
+        [[ -f "$ASR_BIN" ]] || { fail "未在 App 包内找到 asr_server: ${ASR_BIN}"; return 1; }
+        chmod +x "$ASR_BIN"
+        nohup "$ASR_BIN" >"$ASR_LOG" 2>&1 &
+        asr_pid=$!
+    fi
     printf '%s\n' "$asr_pid" >"$ASR_PID_FILE"
     wait_for_port "${ASR_PORTS[0]}" "ASR HTTP 服务" "$ASR_HEALTH_TIMEOUT_SEC" || return 1
     wait_for_port "${ASR_PORTS[1]}" "ASR WebSocket 服务" "$ASR_HEALTH_TIMEOUT_SEC" || return 1
@@ -229,17 +302,24 @@ step "3/5 检查 Hermeneus ASR 服务…"
 start_or_reuse_asr || exit 1
 
 step "4/5 清理应用隔离标记…"
-if [[ -d "$APP_PATH" ]]; then
+if [[ "$APP_LAUNCH_MODE" == "installed" && -d "$APP_PATH" ]]; then
     xattr -cr "$APP_PATH" 2>/dev/null || true
+elif [[ "$APP_LAUNCH_MODE" == "project" && -x "$APP_EXECUTABLE" ]]; then
+    : # The locally signed project bundle does not need LaunchServices or xattr rewriting.
+elif [[ "$APP_LAUNCH_MODE" == "development" && -x "$APP_EXECUTABLE" ]]; then
+    :
 else
-    fail "未找到 ${APP_PATH}"
+    fail "未找到可启动的本地 Full 包或正式 Full DMG。请先完成本地构建。"
     exit 1
 fi
-
 step "5/5 启动 Hermeneus App…"
-if open -a "$APP_NAME"; then
-    ok "启动流程完成。"
+if [[ "$APP_LAUNCH_MODE" == "installed" ]]; then
+    open -a "$APP_NAME" || { fail "无法启动 ${APP_PATH}"; exit 1; }
 else
-    fail "无法启动 ${APP_PATH}"
-    exit 1
+    if pgrep -f "$APP_EXECUTABLE" >/dev/null 2>&1; then
+        ok "复用已有本地 Hermeneus App"
+    else
+        nohup "$APP_EXECUTABLE" >"${TMPDIR:-/tmp}/hermeneus-local-app.log" 2>&1 &
+    fi
 fi
+ok "启动流程完成（${APP_LAUNCH_MODE}）。"

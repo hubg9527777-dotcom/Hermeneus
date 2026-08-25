@@ -201,7 +201,7 @@ public struct SubtitleView: View {
             
             Spacer()
             
-            if orchestrator.localInputMode == .pushToTalk {
+            if orchestrator.isRunning {
                 pttStatusIndicator
             }
             
@@ -217,7 +217,7 @@ public struct SubtitleView: View {
         }) {
             HStack(spacing: 4) {
                 Image(systemName: orchestrator.localInputMode == .pushToTalk ? "hand.tap.fill" : "waveform")
-                Text(orchestrator.localInputMode == .pushToTalk ? "按键说话" : "自动检测")
+                Text(orchestrator.localInputMode == .pushToTalk ? "按键说话" : "自动 + 按键")
             }
             .font(.system(size: 11, weight: .bold))
             .foregroundColor(.white)
@@ -249,7 +249,7 @@ public struct SubtitleView: View {
             Circle()
                 .fill(orchestrator.isPTTPressed ? Color.red : Color.gray.opacity(0.4))
                 .frame(width: 8, height: 8)
-            Text(orchestrator.isPTTPressed ? "正在录音..." : "按住 ⌥ 说话")
+            Text(orchestrator.isPTTPressed ? "正在录音..." : (orchestrator.localInputMode == .automaticVAD ? "按住 ⌥ 立即说话" : "按住 ⌥ 说话"))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(orchestrator.isPTTPressed ? .red : .white.opacity(0.6))
         }

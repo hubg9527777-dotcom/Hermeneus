@@ -17,6 +17,14 @@ v4 -> v5 核心变化：
 import os
 import sys
 
+# A frozen macOS ASR process is re-invoked by multiprocessing for resource
+# tracking and workers. Divert those invocations before offline dispatch,
+# heavyweight imports, model initialization, or port binding. Source execution
+# remains unaffected.
+if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
+
 # Full DMG reuses the already-packaged ASR runtime for offline batch work.
 # Dispatch before importing real-time server dependencies or binding any ports.
 if "--offline-batch" in sys.argv:
