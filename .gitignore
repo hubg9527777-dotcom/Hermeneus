@@ -52,3 +52,8 @@ asr_server/__pycache__/
 /private-release-archive/
 /GITHUB_UPLOAD.md
 /publish-v*.sh
+
+# Private audit reports and raw evidence
+/audit/
+/SECURITY_AUDIT*.md
+/NATIVE_SECURITY_REVIEW.md

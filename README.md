@@ -2,14 +2,14 @@
 
 macOS 本地中西语实时传译：语音识别、翻译、字幕与语音播放。
 
-> 当前交付：Hermeneus v1.0.0。已完成原生运行包复核、无账号分离实测及 BlackHole 虚拟设备回传验收。最终发布决定与剩余风险见 [安全报告](SECURITY_AUDIT_V1.0.0.md)。
+[下载 Hermeneus v1.0.0 完整版](https://github.com/hubg9527777-dotcom/Hermeneus/releases/tag/v1.0.0)。普通用户下载安装包即可，无需下载源码。
 
 ## 普通用户：首次安装
 
-适用：包含安装向导的新构建 **Full 完整版**，macOS 14 或以上、Apple Silicon。旧版 DMG 不会因源代码更新而自动获得向导。
+系统要求：macOS 14 或以上、Apple Silicon。首次使用需要联网准备模型，建议预留至少 10GB 可用空间。
 
 1. 打开 `Hermeneus-v1.0.0-Full.dmg`，将 **Hermeneus** 拖入“应用程序”。
-2. 双击 **Hermeneus**，应用会打开准备向导。此版本按开发者选择仅使用临时签名，未做 Apple 公证。若 macOS 阻止打开，在“系统设置 → 隐私与安全性”对该应用点击“仍要打开”。不要关闭系统安全保护；[Apple 官方说明](https://support.apple.com/zh-cn/102445)。
+2. 双击 **Hermeneus**，应用会打开准备向导。此版本未经 Apple 公证。若 macOS 阻止打开，在“系统设置 → 隐私与安全性”对该应用点击“仍要打开”。不要关闭系统安全保护；[Apple 官方说明](https://support.apple.com/zh-cn/102445)。
 3. Full 已内置 Ollama 命令行运行时，Hermeneus 自动在后台启动它。无需安装 Ollama 图形界面、Homebrew 或配置系统服务。
 4. 选择翻译模型。不确定时保留 **标准 · 千问 2.5**，点击 **下载并准备**。向导显示翻译模型下载进度，并等待中文和西语语音模型完成准备。
 5. 点击 **允许麦克风** 和 **允许系统音频 / 屏幕录制**，在系统设置里确认授权。若系统要求重新打开应用，请照提示操作。回到向导后可点击 **刷新授权**。
@@ -34,7 +34,7 @@ macOS 本地中西语实时传译：语音识别、翻译、字幕与语音播�
 
 - **模型下载中断**：恢复网络后点击重试。Ollama 会复用已下载的数据。
 - **语音模型准备失败**：检查网络后点击重试。向导会重新尝试准备语音模型。
-- **缺少内置语音引擎**：安装 Full 完整版。Lite 面向已有运行环境的用户，不适合新电脑。
+- **缺少内置语音引擎**：重新下载安装 Full 完整版。
 - **服务未就绪 / 端口冲突**：关闭旧版 Hermeneus 后重试；不要随意结束其他应用进程。
 - **授权后仍未通过**：在系统设置中确认 Hermeneus 获得权限，按系统提示重新打开应用。
 - **需要排查**：点击 **打开诊断日志**，查看 `~/Library/Logs/Hermeneus/` 中的日志。
@@ -56,26 +56,19 @@ Full 已内置私有 FFmpeg 和运行库，无需 Homebrew。离线单轨选择�
 
 设备选择会保存，应用将自己的播报直接送往所选设备；设备断开时会报错并停止，避免意外改为扬声器播放。选择“本机播放”则用于本地听译。应用不能替会议软件确认对方收音，也不会更改电脑的默认音频设备。切换设备会停止当前翻译会话。
 
-## 构建与发布
+## 从源码构建
 
-安装包使用安全修订 `0.40.6-hermeneus.3`，Ollama Go 主程序和 llama.cpp 从固定源码重建，保留已核对的官方 MLX 库。主接口和原生计算后端均校验临时访问凭据；原生 RPC 与未使用的 GIF 解码关闭。源码、模型、运行包和签名后文件分别保留校验记录。
+普通用户请使用发布页中的 DMG。开发者可从本仓库构建，应用使用 Swift，语音服务构建使用 Python 3.11；构建流程见 `.github/workflows/build_dmg.yml`。
 
-CI 仅手动构建，不自动创建 GitHub Release。`release-security.json` 保存审核状态。分离引擎已应用元数据越界补丁并从源码重建，本机完整 DMG 验收通过；下载文件及校验和见 [v1.0.0 发布页](https://github.com/hubg9527777-dotcom/Hermeneus/releases/tag/v1.0.0)。公开源码保留构建工具、测试、许可证、当前安全报告和必要来源记录；历史修补脚本、旧审计原始数据及维护者本机发布脚本留在本地归档。
-
-本地验证：
+本地检查：
 
 ```sh
 swift build --package-path HermeneusApp/App
 python3 -m unittest discover -s tests -v
 bash scripts/test_translation_stream.sh
 bash scripts/test_audio_route.sh
-bash -n start.sh Hermeneus_start.sh
 ```
 
-`start.sh` 与 `Hermeneus_start.sh` 仅保留为打开应用的兼容入口。组件启动、模型选择和准备由应用内向导管理。Python 构建使用 3.11，构建工具已迁移到 setuptools 83 / importlib 元数据，语音连接使用 websockets 17。安全约束和实时依赖审计用于新构建，不会修改电脑上已有的 Python 环境。
+## 许可证
 
-ASR 安装协议已升级为 2，HTTP / WebSocket 都要求应用生成的临时凭据。必须同步重建应用和 ASR；旧版二进制不能混入新 Full 包。该凭据自动在内存中生成，普通用户无需填写 `.env`。
-
-此版本按开发者明确选择，不使用 Developer ID 或 Apple 公证。临时签名的完整性检查不等于 Apple 认证。普通用户可按系统提示对单个应用允许打开，不需要终端，不应关闭 Gatekeeper 或 SIP。
-
-本轮在当前 Apple M4 电脑及隔离测试环境完成构建、翻译、分离和 BlackHole 回传；没有第二台 macOS 14/M1 或全新系统，不能宣称这些平台已经实机验收。会议软件需手动选择 BlackHole 输入，另一端是否收到需在该软件确认。
+本项目使用 MIT 许可证，见 [LICENSE](LICENSE)。分离模型与第三方组件的许可证见 [模型说明](DIARIZATION_MODELS.md)、`licenses/` 和 `runtime/ollama/OLLAMA_LICENSE`。
