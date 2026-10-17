@@ -60,7 +60,7 @@ Full 已内置私有 FFmpeg 和运行库，无需 Homebrew。离线单轨选择�
 
 安装包使用安全修订 `0.40.6-hermeneus.3`，Ollama Go 主程序和 llama.cpp 从固定源码重建，保留已核对的官方 MLX 库。主接口和原生计算后端均校验临时访问凭据；原生 RPC 与未使用的 GIF 解码关闭。源码、模型、运行包和签名后文件分别保留校验记录。
 
-CI 仅手动构建，不自动创建 GitHub Release。`release-security.json` 保存审核状态；最终上传步骤以 `GITHUB_UPLOAD.md` 为准。不要把旧 DMG 或旧报告当作本轮交付。分离引擎已应用元数据越界补丁并从源码重建；本机最终完整 DMG 验收通过。正式发布命令见 GITHUB_UPLOAD.md，由开发者自行执行。
+CI 仅手动构建，不自动创建 GitHub Release。`release-security.json` 保存审核状态。分离引擎已应用元数据越界补丁并从源码重建，本机完整 DMG 验收通过；下载文件及校验和见 [v1.0.0 发布页](https://github.com/hubg9527777-dotcom/Hermeneus/releases/tag/v1.0.0)。公开源码保留构建工具、测试、许可证、当前安全报告和必要来源记录；历史修补脚本、旧审计原始数据及维护者本机发布脚本留在本地归档。
 
 本地验证：
 

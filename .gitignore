@@ -47,3 +47,8 @@ asr_server/__pycache__/
 # Local binaries and private audit scratch files
 .local_test/
 *.copying
+
+# Maintainer-only publishing files and private archives
+/private-release-archive/
+/GITHUB_UPLOAD.md
+/publish-v*.sh

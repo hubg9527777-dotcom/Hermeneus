@@ -1,4 +1,0 @@
-setuptools==69.5.1
-pyannote.audio==4.0.7
-torchcodec==0.16.0
-websockets==14.2
