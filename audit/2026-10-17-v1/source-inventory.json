@@ -1,0 +1,378 @@
+[
+  {
+    "path": ".env.example",
+    "sha256": "e760fd93bee7bf480ea8bbdd09fd32fb9d4feca07c1c71f240b1cc5b09593e76"
+  },
+  {
+    "path": ".github/workflows/build_dmg.yml",
+    "sha256": "475a7c95758fc9588bc2c00b6ba040d3d9ff8011557c1681929802241bf75e87"
+  },
+  {
+    "path": ".gitignore",
+    "sha256": "6eba7a9611ea6937c91737397177393bafcc46f59bf2e4ff8745dda03e08e281"
+  },
+  {
+    "path": "HermeneusApp/App/Package.swift",
+    "sha256": "3a8447c04d6d431a1213b44626a19653149248cf497ee71e6def1231ff1427a7"
+  },
+  {
+    "path": "HermeneusApp/App/Sources/AILiveInterpreterApp.swift",
+    "sha256": "37ecd8631dfbb26caced2106d53f90ae5f81f98340b5c9a9007ac5f045d27bc9"
+  },
+  {
+    "path": "HermeneusApp/App/Sources/AudioReturnView.swift",
+    "sha256": "f0eac4972d2d89a6242cb51c2b690e29be666b403bd90d65335c24bc002ad81f"
+  },
+  {
+    "path": "HermeneusApp/App/Sources/ConversationContextEngine.swift",
+    "sha256": "34274eca695ec7f6faddf215c74cb9f04ecb1cb91493cd0e604ecfbfa231e495"
+  },
+  {
+    "path": "HermeneusApp/App/Sources/OfflineBatchRunner.swift",
+    "sha256": "1d54d901b38f37493fd3766243d6359c68aa08761641e584104a0a5943229547"
+  },
+  {
+    "path": "HermeneusApp/App/Sources/OfflineRecording.swift",
+    "sha256": "388c3f8328261847d5ae4d4b9d6a9cb232df4637ca154a49dc813ff97767d653"
+  },
+  {
+    "path": "HermeneusApp/App/Sources/OfflineToolsPrototype.swift",
+    "sha256": "74fe51f131ba2f39d707c20ebe4039037c4b8a2a857746f287411e171f25e551"
+  },
+  {
+    "path": "HermeneusApp/App/Sources/PTTHotkeyMonitor.swift",
+    "sha256": "b38c2b754f8a4a27559d5692148ea99c51d8aaf4cb5fd46c07a229911cbb4b40"
+  },
+  {
+    "path": "HermeneusApp/App/Sources/PipelineOrchestrator.swift",
+    "sha256": "36b9ea3b95345142c56dec9f319026eac5f2476bd0672a243eb2c31c6c3305f1"
+  },
+  {
+    "path": "HermeneusApp/App/Sources/SetupAssistant.swift",
+    "sha256": "1007d08c8e82bd08dd4563e559f52b6b9ad15ef5ada12d77912cc4fb303f9b13"
+  },
+  {
+    "path": "HermeneusApp/App/Sources/SubtitleView.swift",
+    "sha256": "32075c48bcc86ec4dd4c5a9052caf72a0d8f167e81cb6d7c9f58dda93da41b5d"
+  },
+  {
+    "path": "HermeneusApp/App/deploy_v2_5_editor.py",
+    "sha256": "e537a058c8b4452b2df2d148c160337e7d477692125d334b399dafa5ca138e01"
+  },
+  {
+    "path": "HermeneusApp/App/fix_all.py",
+    "sha256": "9b6b08823e87ac2a77e4f8121d30df19d7f487be9a0446f1ce977837bb81808e"
+  },
+  {
+    "path": "HermeneusApp/App/fix_app.py",
+    "sha256": "6da278a74a06f65ca8da23b26fa6858fb06bab78ae5600d4b6d7c7b95f901e8a"
+  },
+  {
+    "path": "HermeneusApp/App/fix_conflict.py",
+    "sha256": "671efe9e5b0414a9cf6189ea5e3b54a4dc9138b6c95b4e25a44f852704a09394"
+  },
+  {
+    "path": "HermeneusApp/App/fix_custom_pro_ui.py",
+    "sha256": "f2a989f6085b4a3c531a9f2b860e40f6e63fe41c341e12fafc84916fec569208"
+  },
+  {
+    "path": "HermeneusApp/App/fix_longer.py",
+    "sha256": "9ad0680de80b5019889b62ed1a7be3f81e654dbec1f5e3b173add598ed5336ca"
+  },
+  {
+    "path": "HermeneusApp/App/fix_pure_glass_ui.py",
+    "sha256": "f8b14afa598cb69960c4ca9936c34b6ee1d49c20340a7912ff6ad8b28b1126c9"
+  },
+  {
+    "path": "HermeneusApp/App/fix_segmenter.py",
+    "sha256": "3554989e20a8cee07bf4405b05e982a08861baa75849b6763d87db12203ed059"
+  },
+  {
+    "path": "HermeneusApp/App/fix_stream_scope.py",
+    "sha256": "b92638784a3aea8280eea3c36e5d7efce5837ccd24d5ae60c3e73e9965882a68"
+  },
+  {
+    "path": "HermeneusApp/App/fix_ultimate_popover.py",
+    "sha256": "0fdf983f007dc1954f031f0cf7d67e3ef19d5e3c6536ca2f290189b377eed016"
+  },
+  {
+    "path": "HermeneusApp/App/fix_ultimate_ui.py",
+    "sha256": "3d05eb8df231b69664cbae5ff5209b3ccb0c729173696d844735cef747c019b4"
+  },
+  {
+    "path": "HermeneusApp/App/fix_unified_black_glass_ui.py",
+    "sha256": "d0003340d47ae7e118fd6a754c4193b07e60f07ff5797a255af1c613f60fb4de"
+  },
+  {
+    "path": "HermeneusApp/App/update_perfect_5050_ui.py",
+    "sha256": "d339b8e68088727d00593d8e297d6052d74a46d860226f1a9ed0a5792e1a1281"
+  },
+  {
+    "path": "HermeneusApp/Packages/ASRKit/Package.swift",
+    "sha256": "b8c08a6acbf25f7f34e09005dd0aa693ac5060bd9b3bc1f8c3cce9844fad09cd"
+  },
+  {
+    "path": "HermeneusApp/Packages/ASRKit/Sources/ASRKit/ASRProtocol.swift",
+    "sha256": "63588c479eed20985d1867e0135297de3d36510406faac3276ef545ec499f7a1"
+  },
+  {
+    "path": "HermeneusApp/Packages/ASRKit/Sources/ASRKit/WebSocketASREngine.swift",
+    "sha256": "79539bbd24eccd4b55631462f8d4a89369b9d7a666d11eebd0331342f648501f"
+  },
+  {
+    "path": "HermeneusApp/Packages/ASRKit/Sources/ASRKit/WhisperASREngine.swift",
+    "sha256": "6a4f23275d1e65960272be460fc3a4151f72d5a95cbdf52e0a36712f59f24541"
+  },
+  {
+    "path": "HermeneusApp/Packages/AudioCore/Package.swift",
+    "sha256": "5a1d8f9cab068498e3e1d71e38098f838ea196541e284fcb33ac8df6ee8cfa47"
+  },
+  {
+    "path": "HermeneusApp/Packages/AudioCore/Sources/AudioCore/AudioModels.swift",
+    "sha256": "a0467f5c79318bbf9016411c4557c139d3308ff37046a162b0d45a5dba5a926f"
+  },
+  {
+    "path": "HermeneusApp/Packages/AudioCore/Sources/AudioCore/AudioResampler.swift",
+    "sha256": "285e555d9947887f01361e7a619a7dc795a6d801b943cd13bbddf04e61384c71"
+  },
+  {
+    "path": "HermeneusApp/Packages/AudioCore/Sources/AudioCore/AudioRingBuffer.swift",
+    "sha256": "4eeb6b9bffdae13d37178b987af9784f206437bda7666a4626e82ad15f7f45af"
+  },
+  {
+    "path": "HermeneusApp/Packages/AudioCore/Sources/AudioCore/LocalServiceAccess.swift",
+    "sha256": "15b2c0849659e404b4c28a6b193683a7366c92c37f3123196f45be68f0dd5f0f"
+  },
+  {
+    "path": "HermeneusApp/Packages/AudioCore/Sources/AudioCore/MicrophoneCapturer.swift",
+    "sha256": "d31c409fb6cc8f11ad76f67c4ae5552aa8e033aba5494a83924d92a5c142e633"
+  },
+  {
+    "path": "HermeneusApp/Packages/AudioCore/Sources/AudioCore/RingBuffer.swift",
+    "sha256": "8a60f9a27619b75b1310552b7acf2bf9fdb8ff8f2abfc3b3139a3e916b3f3c26"
+  },
+  {
+    "path": "HermeneusApp/Packages/AudioCore/Sources/AudioCore/SCKAudioCapturer.swift",
+    "sha256": "f960e09471193c546da394daa6fd620508a496a9ecc2d5f4e5506289890bb8f5"
+  },
+  {
+    "path": "HermeneusApp/Packages/TTSKit/Package.swift",
+    "sha256": "68fcd2c3a403f604254f4915347c3eff4afcb6155ca68f2433c671050dea8c1e"
+  },
+  {
+    "path": "HermeneusApp/Packages/TTSKit/Sources/TTSKit/AudioOutputDevice.swift",
+    "sha256": "3f5e7f081eea85fca585d25a2c8309745b779fbac0791b4ee8ba7fb5ec9f1bad"
+  },
+  {
+    "path": "HermeneusApp/Packages/TTSKit/Sources/TTSKit/AudioReturnProbe.swift",
+    "sha256": "38a2bb7cb4d4ff787224947cf92bea41632942ace6e45ef556d3cc7f0f26a701"
+  },
+  {
+    "path": "HermeneusApp/Packages/TTSKit/Sources/TTSKit/BlackHoleTTSEngine.swift",
+    "sha256": "7deca912ee90250f6389c52def3af701ac9a5eadde060dca7d5a65f6d5235c57"
+  },
+  {
+    "path": "HermeneusApp/Packages/TTSKit/Sources/TTSKit/ClauseSpeechScheduler.swift",
+    "sha256": "0d4a9336e52c7ecb3006f850c5902b43844aaaf8d0f3e2610dc5bb4c4dc04c09"
+  },
+  {
+    "path": "HermeneusApp/Packages/TTSKit/Sources/TTSKit/TTSProtocol.swift",
+    "sha256": "71aef32fe6e03197de577407f8aa4cd6ba3520c44d0a1330c338cb483ef20021"
+  },
+  {
+    "path": "HermeneusApp/Packages/TranslateKit/Package.swift",
+    "sha256": "86074976da7752aa965dfadc8bd12f64bf354ab22ab4413dc7d26e7d97007041"
+  },
+  {
+    "path": "HermeneusApp/Packages/TranslateKit/Sources/TranslateKit/ClauseSplitter.swift",
+    "sha256": "a88785ac4389f28b5392b661608c39610f539742a06dff887a342c4048dea80e"
+  },
+  {
+    "path": "HermeneusApp/Packages/TranslateKit/Sources/TranslateKit/OllamaModelManager.swift",
+    "sha256": "71c96aa1d9357a838e5250ace0466223fc873972dba00ed5928408b72bbb275b"
+  },
+  {
+    "path": "HermeneusApp/Packages/TranslateKit/Sources/TranslateKit/OllamaStreamState.swift",
+    "sha256": "504d6dccb9c17d965c35c7150bc5dbff0b5e3bcf53431948cf0574b13a53596a"
+  },
+  {
+    "path": "HermeneusApp/Packages/TranslateKit/Sources/TranslateKit/OllamaTranslationEngine.swift",
+    "sha256": "c0bf43d4c005de796ea5277650ac36b405f6d1af3d93a112cf66067de4ab2f42"
+  },
+  {
+    "path": "HermeneusApp/Packages/TranslateKit/Sources/TranslateKit/TranslationEngine.swift",
+    "sha256": "e1eeaab9551011c19d0f54a86e2886a52eeb6f7d3eb19f35846e9d46a670e5a5"
+  },
+  {
+    "path": "HermeneusApp/Packages/VADKit/Package.swift",
+    "sha256": "b56655e14afe50559f6a25b503bae0c6af3282db0cd793031998a555ed21a71d"
+  },
+  {
+    "path": "HermeneusApp/Packages/VADKit/Sources/VADKit/EnergyVADEngine.swift",
+    "sha256": "1ffccd515bda1f9564d2de845c84acf9cca49d5c9517e5a66fc8f991d54dda7b"
+  },
+  {
+    "path": "HermeneusApp/Packages/VADKit/Sources/VADKit/VADProtocol.swift",
+    "sha256": "d02fb164ea9d30e1d22d0efc298c25dae39ae425a5b4610343c4ed17856d0cac"
+  },
+  {
+    "path": "Hermeneus_start.sh",
+    "sha256": "33f48834fd10ba4733a9ca7a225a3e9af4b842a460b9608a9890ec7d3afa06c2"
+  },
+  {
+    "path": "VERSION",
+    "sha256": "59854984853104df5c353e2f681a15fc7924742f9a2e468c29af248dce45ce03"
+  },
+  {
+    "path": "asr_server/asr_security.py",
+    "sha256": "d4aa2ec9969c4f87ef4ca43451e4429ffa577b253e9aa829c6d545ae65fb65e8"
+  },
+  {
+    "path": "asr_server/asr_server.spec",
+    "sha256": "93a6f13673402c57d275ab91ca0d7d5b868ba5acde61cc67166423ac936f15f1"
+  },
+  {
+    "path": "asr_server/fix_server_indent.py",
+    "sha256": "61788ef6bd8872084009077ddf1fa74b039ba9fdd088a185dedf3717b80cc7f2"
+  },
+  {
+    "path": "asr_server/fix_try.py",
+    "sha256": "df99e376994327557f6ae5de5f28a4ab263600fb8758fd976b98babec042bae3"
+  },
+  {
+    "path": "asr_server/fix_ui_refresh_trigger.py",
+    "sha256": "819ea0bac2e7056223365d166fd90bcf61d44d4ddb255b5b102aae58be130513"
+  },
+  {
+    "path": "asr_server/offline_batch_worker.py",
+    "sha256": "c202220b8e94a035d8fcdbad1de12e636c30b05791dcd5ee8b6f03311a87a233"
+  },
+  {
+    "path": "asr_server/offline_diarization_worker.py",
+    "sha256": "a6c1d9f167aa95a499edc8e345869fdabed95590f965b1545f3a27c532cca9ac"
+  },
+  {
+    "path": "asr_server/offline_diarizer.spec",
+    "sha256": "72129e4fa7c19cdb69f062996432864e240ea0aa5523f51588a181877211bcd0"
+  },
+  {
+    "path": "asr_server/secure_paths.py",
+    "sha256": "dba5a2fffee53199f1c3ff5764e2e06aa91710eace47ea1f47bd1a9197f79bfa"
+  },
+  {
+    "path": "asr_server/server.py",
+    "sha256": "0a91d5baed3050578883b0666577b12ae088b0a6ace878989e9a3b30207a1ba1"
+  },
+  {
+    "path": "asr_server/trusted_diarization.py",
+    "sha256": "cbc014fe4933a2993cd8845fa8354571e733094fb10b47892d1730a87875a55c"
+  },
+  {
+    "path": "constraints-security.txt",
+    "sha256": "99a37977614fd73099bd0ef2a7bb3a2d55022a0613fe01dfa498ac38c7e1acc4"
+  },
+  {
+    "path": "release-security.json",
+    "sha256": "6afb8ae9961f3a3d43882622241fd774d958e5cd579292d72760cd555223305e"
+  },
+  {
+    "path": "requirements.txt",
+    "sha256": "cb81e45c99457e5b4ea948e247e446975775545a2eaddc7513995ef2ffd74d1e"
+  },
+  {
+    "path": "runtime/ollama/OLLAMA_LICENSE",
+    "sha256": "5934ed2ce0d15154bcdb9c85203210abac0da4314af34081e36df4599f90b226"
+  },
+  {
+    "path": "runtime/ollama/go.mod",
+    "sha256": "4e17df72532f4791b7bb4e3fd1adda7f62fafea21153639124bada7014eb233f"
+  },
+  {
+    "path": "runtime/ollama/go.sum",
+    "sha256": "7972fb30bc9bf45f3d5459f4b861f844e9668ecdcab6e344a876049b1a87e732"
+  },
+  {
+    "path": "runtime/ollama/hermeneus_security.go",
+    "sha256": "63ad4c9977b93156026205ec1f5ddc9afe192ebb5ec4433638b759a941f1b155"
+  },
+  {
+    "path": "scripts/check_release_security.py",
+    "sha256": "69118be8339ee366566a624d8dd179ee8abb05122b3d629324851fa291b840a3"
+  },
+  {
+    "path": "scripts/package_local.py",
+    "sha256": "1925f1d8927ec139ed174b6640edb4bd05883926b87b57f223a2a6f821f87a60"
+  },
+  {
+    "path": "scripts/rebuild_ffmpeg.py",
+    "sha256": "8d927a4110cbe225e5b59068d4be2c1f233628cd86e90daca913f01c64541778"
+  },
+  {
+    "path": "scripts/rebuild_ollama.py",
+    "sha256": "15cb72b746c6a92bedbb2ff4be277c979a450228b91a4c18f1655a47dc008e35"
+  },
+  {
+    "path": "scripts/sign_full_bundle.sh",
+    "sha256": "bca1f1a7b20212d1486de620d9cd6870667e52292d88fffa48de8f4c006031aa"
+  },
+  {
+    "path": "scripts/test_audio_route.sh",
+    "sha256": "6a6fe00b6870ab500c07beaefe676a19247fb16b1de2cd0cb2385781c53ba1ef"
+  },
+  {
+    "path": "scripts/test_translation_stream.sh",
+    "sha256": "044f38e02c6bb2304d3c51f4886790bf48642f793883a7ca634bfa293531a9f7"
+  },
+  {
+    "path": "scripts/vendor_ffmpeg.py",
+    "sha256": "f10f1c4a5f0b3c713b04b1b2104030c96680f16456db0178a4a72e1ca479e22e"
+  },
+  {
+    "path": "scripts/vendor_ollama.py",
+    "sha256": "d1ec4721f4e664b436557f5005710c042213fa0166cda412ae2e357d9ba20cdd"
+  },
+  {
+    "path": "scripts/verify_full_bundle.sh",
+    "sha256": "94e401dc25f8753c8a384d1812f1596711049c3f3c14d372fd7041e987b8458b"
+  },
+  {
+    "path": "start.sh",
+    "sha256": "23a3ddb6382bb4e67590db719d5101f575edd28930f0a94437fb301896f87b6a"
+  },
+  {
+    "path": "tests/audio_loopback_integration.swift",
+    "sha256": "70bde0cd8a2400c2df61b91c8d0883527484db4ad764c8d9ee51ddbae40a2977"
+  },
+  {
+    "path": "tests/audio_route_smoke.swift",
+    "sha256": "8a37b6e829dcaee80b515e4758c876f5354b3566a19a719a4fdc502f9659ae46"
+  },
+  {
+    "path": "tests/test_release_security.py",
+    "sha256": "3ba1b1b7c7cd0bb6ad827601c9f1a3a01f84009643cee47cb985a84518bf9d74"
+  },
+  {
+    "path": "tests/test_security_boundaries.py",
+    "sha256": "fdaa34a0455da29b0e57fd031bc538e6b06ca7c7795a126ae4e2a4528ea90f10"
+  },
+  {
+    "path": "tests/test_setup_health.py",
+    "sha256": "f43a38b2b0603be9410346e9b1fd996786c63c87a004e86b52471dcf08e10354"
+  },
+  {
+    "path": "tests/test_trusted_diarization.py",
+    "sha256": "d6fbeee254f2f6d90c17df5006f3221924edef45e4ea53afb70465a555ce5d77"
+  },
+  {
+    "path": "tests/test_vendor_ollama.py",
+    "sha256": "3190058364022f814453d65d437c48e09c63ef854f0f9b78d02e98f978a7bb92"
+  },
+  {
+    "path": "tests/test_websocket_security.py",
+    "sha256": "a8ea2c729f110be5a38c1e57a2a0394f36cc7a0a64b54367ed25108b23c06ada"
+  },
+  {
+    "path": "tests/translation_stream_smoke.swift",
+    "sha256": "9e27ab997e6677dbb5a4673006eac28045a732bc801bf9cd2fd9f8cd09342793"
+  }
+]

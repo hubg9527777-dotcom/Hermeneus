@@ -1,0 +1,18 @@
+{
+  "name": "Hermeneus",
+  "version": "1.0.0",
+  "bundle_identifier": "com.hermeneus.ailiveinterpreter",
+  "artifact_name": "Hermeneus-v1.0.0-Full.dmg",
+  "artifact_bytes": 993839897,
+  "artifact_sha256": "025e249562811ca051167c01996c039c3c6fe571356f5e74362b4488b6840ace",
+  "temporary_signature_verified_on_mounted_dmg": true,
+  "notarized": false,
+  "homebrew_denied_runtime_checks_passed": true,
+  "actual_asr_model_warmup_passed": true,
+  "ollama_revision": "0.40.6-hermeneus.2",
+  "actual_translation_and_unauthorized_rejection_passed": true,
+  "blackhole_output": "passed in earlier QA test",
+  "blackhole_input": "deferred by user, not accepted",
+  "official_diarization_model_inference": "pending gated access",
+  "formal_release_approved": false
+}

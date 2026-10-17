@@ -1,0 +1,56 @@
+{
+  "id": "GO-2025-3824",
+  "summary": "Ollama vulnerable to Cross-Domain Token Exposure in github.com/ollama/ollama",
+  "details": "Ollama vulnerable to Cross-Domain Token Exposure in github.com/ollama/ollama",
+  "aliases": [
+    "CVE-2025-51471",
+    "GHSA-x9hg-5q6g-q3jr"
+  ],
+  "modified": "2026-06-10T12:11:14.407643832Z",
+  "published": "2025-07-30T21:37:48Z",
+  "related": [
+    "CGA-6crq-pcpr-mxc6"
+  ],
+  "database_specific": {
+    "review_status": "REVIEWED",
+    "url": "https://pkg.go.dev/vuln/GO-2025-3824"
+  },
+  "references": [
+    {
+      "type": "ADVISORY",
+      "url": "https://github.com/advisories/GHSA-x9hg-5q6g-q3jr"
+    },
+    {
+      "type": "FIX",
+      "url": "https://github.com/ollama/ollama/pull/10750"
+    },
+    {
+      "type": "WEB",
+      "url": "https://www.gecko.security/blog/cve-2025-51471"
+    }
+  ],
+  "affected": [
+    {
+      "package": {
+        "name": "github.com/ollama/ollama",
+        "ecosystem": "Go",
+        "purl": "pkg:golang/github.com/ollama/ollama"
+      },
+      "ranges": [
+        {
+          "type": "SEMVER",
+          "events": [
+            {
+              "introduced": "0"
+            }
+          ]
+        }
+      ],
+      "ecosystem_specific": {},
+      "database_specific": {
+        "source": "https://vuln.go.dev/ID/GO-2025-3824.json"
+      }
+    }
+  ],
+  "schema_version": "1.7.3"
+}

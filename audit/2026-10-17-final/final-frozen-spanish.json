@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "model": "sherpa-onnx/segmentation-3.0+titanet-small",
+  "num_speakers": 2,
+  "turns": [
+    {
+      "start": 0.031,
+      "end": 8.097,
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "start": 9.312,
+      "end": 17.058,
+      "speaker": "SPEAKER_01"
+    },
+    {
+      "start": 18.222,
+      "end": 26.103,
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "start": 27.318,
+      "end": 35.198,
+      "speaker": "SPEAKER_01"
+    }
+  ],
+  "audio_uploaded": false,
+  "account_required": false
+}

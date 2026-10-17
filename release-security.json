@@ -1,0 +1,19 @@
+{
+  "release_approved": true,
+  "review_date": "2026-10-17",
+  "reviewed_ollama_version": "0.40.6",
+  "reviewed_ollama_sha256": "b2b55434865a668decb494110d7fd970eed3ecc8837be2872f672ccbb95df974",
+  "blockers": [],
+  "reviewed_security_revision": "0.40.6-hermeneus.3",
+  "qa_only": false,
+  "accepted_distribution_limits": [
+    "No Developer ID / notarization, explicitly accepted by developer."
+  ],
+  "reviewed_diarization_version": "1.13.8+hermeneus.1",
+  "reviewed_diarization_patch_sha256": "833d73f98b8d8c652cab7c1df9d5cc7d1821e2f104eb34172ba63eb6578a5c5d",
+  "acceptance_scope": "Local Apple M4 acceptance; unsigned/not notarized distribution accepted; no GitHub upload performed",
+  "accepted_residual_risks": [
+    "libsndfile 1.2.2 advisory remains unresolved; trusted audio, bounded worker process; not an OS sandbox.",
+    "No second-machine macOS 14/M1 or remote conference acceptance."
+  ]
+}

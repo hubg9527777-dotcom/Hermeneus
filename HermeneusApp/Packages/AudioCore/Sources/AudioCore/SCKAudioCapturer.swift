@@ -1,0 +1,181 @@
+import Foundation
+import ScreenCaptureKit
+import AVFoundation
+import CoreMedia
+
+public final class SCKAudioCapturer: NSObject, @unchecked Sendable, SCStreamOutput {
+    public let ringBuffer = AudioRingBuffer(capacity: 48000 * 10)
+    private var stream: SCStream?
+
+    // ---------------------------------------------------------------
+    // 生产者-消费者解耦：
+    //   - didOutputSampleBuffer 在 SCKAudioQueue（串行 DispatchQueue）上被
+    //     系统按音频到达的先后顺序依次调用——顺序天然是对的。
+    //   - 但如果在这里对每一帧都开一个 Task { await ringBuffer.write(...) }，
+    //     这些 Task 会被丢进 Swift 并发的全局线程池，不保证按创建顺序执行，
+    //     负载高的时候后到的音频可能先写进 ringBuffer，导致音频错乱。
+    //   - AsyncStream.Continuation.yield() 是同步、非阻塞、严格保序的，
+    //     配合唯一一个常驻消费者 Task 顺序 await ringBuffer.write(...)，
+    //     从架构上彻底消除乱序可能，也省掉了"每帧创建一个 Task"的调度开销。
+    // ---------------------------------------------------------------
+    private let sampleContinuation: AsyncStream<[Float]>.Continuation
+    private let sampleStream: AsyncStream<[Float]>
+    private var consumerTask: Task<Void, Never>?
+    // The capture callback runs on one serial queue. Count drops without
+    // retaining audio, so overload is observable without unbounded memory.
+    private var droppedSampleChunkCount: UInt64 = 0
+    /// 可选的离线录音镜像回调。未设置时，实时采集路径的行为完全不变。
+    public var onAudioChunk: ((AudioSlice) -> Void)?
+    private let observerLock = NSLock()
+    private var audioObservers: [UUID: (AudioSlice) -> Void] = [:]
+
+    /// Adds a non-owning mirror callback. The real-time ring buffer remains primary.
+    @discardableResult
+    public func addAudioObserver(_ observer: @escaping (AudioSlice) -> Void) -> UUID {
+        let id = UUID()
+        observerLock.lock()
+        audioObservers[id] = observer
+        observerLock.unlock()
+        return id
+    }
+
+    public func removeAudioObserver(_ id: UUID) {
+        observerLock.lock()
+        audioObservers.removeValue(forKey: id)
+        observerLock.unlock()
+    }
+
+    private func notifyAudioObservers(_ slice: AudioSlice) {
+        observerLock.lock()
+        let observers = Array(audioObservers.values)
+        observerLock.unlock()
+        for observer in observers { observer(slice) }
+    }
+
+    public override init() {
+        var continuation: AsyncStream<[Float]>.Continuation!
+        // A real-time capture path must prefer fresh audio over memory growth.
+        // Thirty-two incoming chunks provide a short scheduling cushion; on
+        // overload AsyncStream drops the oldest chunk and records the event.
+        self.sampleStream = AsyncStream<[Float]>(bufferingPolicy: .bufferingNewest(32)) { cont in
+            continuation = cont
+        }
+        self.sampleContinuation = continuation
+        super.init()
+
+        let ringBuffer = self.ringBuffer
+        let sampleStream = self.sampleStream
+        consumerTask = Task {
+            for await chunk in sampleStream {
+                await ringBuffer.write(chunk)
+            }
+        }
+    }
+
+    deinit {
+        sampleContinuation.finish()
+        consumerTask?.cancel()
+    }
+
+    public func startCapture() async throws {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+
+        let myPID = NSRunningApplication.current.processIdentifier
+        guard let mainDisplay = content.displays.first else { return }
+
+        // 排除本 App PID，仅采集外部应用（如 Zoom、浏览器）声音
+        let excludedApps = content.applications.filter { $0.processID == myPID }
+        let filter = SCContentFilter(display: mainDisplay, excludingApplications: excludedApps, exceptingWindows: [])
+
+        let config = SCStreamConfiguration()
+        // ScreenCaptureKit streams are display-backed even when this consumer
+        // only needs system audio. Register a discard-only screen output and
+        // throttle it to one tiny frame per second; otherwise WindowServer
+        // repeatedly reports unhandled screen output at display-frame cadence.
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+        config.queueDepth = 1
+        config.width = 2
+        config.height = 2
+        config.capturesAudio = true
+        config.excludesCurrentProcessAudio = true // 从 macOS 内核屏蔽本进程 TTS 播报音，彻底斩断死循环
+        config.sampleRate = 48000
+        config.channelCount = 1
+
+        stream = SCStream(filter: filter, configuration: config, delegate: nil)
+        try stream?.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue(label: "SCKVideoDiscardQueue"))
+        try stream?.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "SCKAudioQueue"))
+        try await stream?.startCapture()
+        print("🎧 系统音频采集引擎（防自激隔离模式）已就绪！")
+    }
+
+    public func stopCapture() async throws {
+        try await stream?.stopCapture()
+        stream = nil
+    }
+
+    public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .audio, sampleBuffer.isValid else { return }
+        guard let pcmBuffer = extractPCMBuffer(from: sampleBuffer) else { return }
+        guard let floatData = pcmBuffer.floatChannelData?[0] else { return }
+
+        let frameLength = Int(pcmBuffer.frameLength)
+        guard frameLength > 0 else { return }
+
+        // 整块内存拷贝（memcpy），比逐元素 for 循环快，且从一开始就是 let，
+        // 天然满足 Strict Concurrency 对并发捕获的要求，不需要额外快照变量。
+        let samples = Array(UnsafeBufferPointer(start: floatData, count: frameLength))
+        // 录音镜像仅在离线录音模式由调用方显式设置；不影响 ringBuffer 的实时消费者。
+        let slice = AudioSlice(pcmData: samples, sampleRate: Int(pcmBuffer.format.sampleRate))
+        onAudioChunk?(slice)
+        notifyAudioObservers(slice)
+
+        // yield 同步返回、极轻量（本质是把数据塞进队列），不阻塞音频回调线程，
+        // 由唯一的消费者 Task 严格按到达顺序异步写入 ringBuffer。
+        switch sampleContinuation.yield(samples) {
+        case .enqueued(_):
+            break
+        case .dropped(_):
+            droppedSampleChunkCount += 1
+            if droppedSampleChunkCount == 1 || droppedSampleChunkCount % 100 == 0 {
+                print("⚠️ [Audio] 系统音频缓冲过载，已丢弃旧块；累计=\(droppedSampleChunkCount)")
+            }
+        case .terminated:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func extractPCMBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
+        // 使用 Swift 原生 CoreMedia API 提取 Format 与 Data Buffer
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
+            return nil
+        }
+
+        let format = AVAudioFormat(cmAudioFormatDescription: formatDescription)
+        let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
+        guard frameCount > 0 else { return nil }
+
+        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)) else {
+            return nil
+        }
+        pcmBuffer.frameLength = AVAudioFrameCount(frameCount)
+
+        let dataLength = CMBlockBufferGetDataLength(blockBuffer)
+        guard dataLength <= Int(pcmBuffer.mutableAudioBufferList.pointee.mBuffers.mDataByteSize),
+              pcmBuffer.mutableAudioBufferList.pointee.mNumberBuffers == 1,
+              let destinationPointer = pcmBuffer.mutableAudioBufferList.pointee.mBuffers.mData else {
+            return nil
+        }
+
+        let status = CMBlockBufferCopyDataBytes(
+            blockBuffer,
+            atOffset: 0,
+            dataLength: dataLength,
+            destination: destinationPointer
+        )
+
+        return status == noErr ? pcmBuffer : nil
+    }
+}

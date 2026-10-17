@@ -1,0 +1,122 @@
+[
+  {
+    "advisory": "GHSA-3p4r-fq3f-q74v",
+    "fix_reference": "b8146",
+    "status": "ahead",
+    "ahead_by": 3523,
+    "behind_by": 0,
+    "base_commit": "418dea39cea85d3496c8b04a118c3b17f3940ad8",
+    "merge_base_commit": "418dea39cea85d3496c8b04a118c3b17f3940ad8",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/b8146...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-96jg-mvhq-q7q7",
+    "fix_reference": "b7824",
+    "status": "ahead",
+    "ahead_by": 3845,
+    "behind_by": 0,
+    "base_commit": "4e5b83b226919c146fbfa754641a6772bcb2d722",
+    "merge_base_commit": "4e5b83b226919c146fbfa754641a6772bcb2d722",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/b7824...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-8947-pfff-2f3c",
+    "fix_reference": "c78fb90",
+    "status": "ahead",
+    "ahead_by": 2761,
+    "behind_by": 0,
+    "base_commit": "c78fb909b23758f5e418cf98a69bc8a0ef142fb8",
+    "merge_base_commit": "c78fb909b23758f5e418cf98a69bc8a0ef142fb8",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/c78fb90...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-vgg9-87g3-85w8",
+    "fix_reference": "26a48ad",
+    "status": "ahead",
+    "ahead_by": 5815,
+    "behind_by": 0,
+    "base_commit": "26a48ad699d50b6268900062661bd22f3e792579",
+    "merge_base_commit": "26a48ad699d50b6268900062661bd22f3e792579",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/26a48ad...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-7rxv-5jhh-j6xx",
+    "fix_reference": "b5721",
+    "status": "ahead",
+    "ahead_by": 5948,
+    "behind_by": 0,
+    "base_commit": "dd6e6d0b6a4bbe3ebfc931d1eb14db2f2b1d70af",
+    "merge_base_commit": "dd6e6d0b6a4bbe3ebfc931d1eb14db2f2b1d70af",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/b5721...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-g4cc-763q-h9h6",
+    "fix_reference": "c33fe8b8",
+    "status": "ahead",
+    "ahead_by": 6020,
+    "behind_by": 0,
+    "base_commit": "c33fe8b8c4427202706b1434e9fc8ab5752c9cac",
+    "merge_base_commit": "c33fe8b8c4427202706b1434e9fc8ab5752c9cac",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/c33fe8b8...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-8wwf-w4qm-gpqr",
+    "fix_reference": "b5662",
+    "status": "ahead",
+    "ahead_by": 6007,
+    "behind_by": 0,
+    "base_commit": "fb85a288d72abbd5e5daa8de96e6f8bfa7b5ab46",
+    "merge_base_commit": "fb85a288d72abbd5e5daa8de96e6f8bfa7b5ab46",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/b5662...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-wcr5-566p-9cwj",
+    "fix_reference": "b3561",
+    "status": "ahead",
+    "ahead_by": 8108,
+    "behind_by": 0,
+    "base_commit": "b72942fac998672a79a1ae3c03b340f7e629980b",
+    "merge_base_commit": "b72942fac998672a79a1ae3c03b340f7e629980b",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/b3561...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-5vm9-p64x-gqw9",
+    "fix_reference": "b3561",
+    "status": "ahead",
+    "ahead_by": 8108,
+    "behind_by": 0,
+    "base_commit": "b72942fac998672a79a1ae3c03b340f7e629980b",
+    "merge_base_commit": "b72942fac998672a79a1ae3c03b340f7e629980b",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/b3561...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-mqp6-7pv6-fqjf",
+    "fix_reference": "b3561",
+    "status": "ahead",
+    "ahead_by": 8108,
+    "behind_by": 0,
+    "base_commit": "b72942fac998672a79a1ae3c03b340f7e629980b",
+    "merge_base_commit": "b72942fac998672a79a1ae3c03b340f7e629980b",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/b3561...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-49q7-2jmh-92fp",
+    "fix_reference": "b3427",
+    "status": "ahead",
+    "ahead_by": 8242,
+    "behind_by": 0,
+    "base_commit": "07283b1a90e1320aae4762c7e03c879043910252",
+    "merge_base_commit": "07283b1a90e1320aae4762c7e03c879043910252",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/b3427...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  {
+    "advisory": "GHSA-p5mv-gjc5-mwqv",
+    "fix_reference": "b2740",
+    "status": "ahead",
+    "ahead_by": 8929,
+    "behind_by": 0,
+    "base_commit": "d4a9afc1009f0da88d04b2c5f672d81d5ae94675",
+    "merge_base_commit": "d4a9afc1009f0da88d04b2c5f672d81d5ae94675",
+    "url": "https://api.github.com/repos/ggml-org/llama.cpp/compare/b2740...620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "ready": true,
+  "chinese_streaming": true,
+  "whisper_backend": "ctranslate2",
+  "unauthorized_request_rejected": true,
+  "private_audio_used": false
+}

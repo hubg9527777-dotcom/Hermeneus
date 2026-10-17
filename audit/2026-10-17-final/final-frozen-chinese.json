@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "model": "sherpa-onnx/segmentation-3.0+titanet-small",
+  "num_speakers": 4,
+  "turns": [
+    {
+      "start": 0.318,
+      "end": 6.865,
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "start": 7.017,
+      "end": 10.747,
+      "speaker": "SPEAKER_01"
+    },
+    {
+      "start": 11.455,
+      "end": 13.632,
+      "speaker": "SPEAKER_01"
+    },
+    {
+      "start": 13.75,
+      "end": 17.041,
+      "speaker": "SPEAKER_02"
+    },
+    {
+      "start": 22.137,
+      "end": 24.837,
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "start": 27.638,
+      "end": 29.478,
+      "speaker": "SPEAKER_03"
+    },
+    {
+      "start": 30.001,
+      "end": 31.553,
+      "speaker": "SPEAKER_03"
+    },
+    {
+      "start": 33.68,
+      "end": 37.932,
+      "speaker": "SPEAKER_03"
+    },
+    {
+      "start": 48.04,
+      "end": 50.47,
+      "speaker": "SPEAKER_02"
+    },
+    {
+      "start": 52.529,
+      "end": 54.605,
+      "speaker": "SPEAKER_00"
+    }
+  ],
+  "audio_uploaded": false,
+  "account_required": false
+}

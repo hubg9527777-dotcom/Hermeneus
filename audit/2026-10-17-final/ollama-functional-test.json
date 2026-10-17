@@ -1,0 +1,10 @@
+{
+  "version": {
+    "version": "0.40.6-hermeneus.3"
+  },
+  "model": "qwen2.5:3b",
+  "translated_text": "¡Hola, hoy estamos probando la traducción al habla.",
+  "done": true,
+  "model_downloaded": false,
+  "private_audio_used": false
+}

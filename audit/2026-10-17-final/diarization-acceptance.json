@@ -1,0 +1,9 @@
+{
+  "spanish_two_voice_abab": true,
+  "spanish_per_turn_overlap_above_90_percent": true,
+  "official_chinese_four_speaker_fixture": true,
+  "source_offline_network_denied": true,
+  "frozen_offline_network_and_homebrew_denied": true,
+  "physical_microphone_used": false,
+  "account_used": false
+}

@@ -1,0 +1,185 @@
+--- a/sherpa-onnx/csrc/offline-transducer-model.cc
++++ b/sherpa-onnx/csrc/offline-transducer-model.cc
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include <memory>
++#include <limits>
++#include <stdexcept>
+ #include <string>
+ #include <utility>
+ #include <vector>
+@@ -170,6 +172,22 @@
+                                    joiner_output_names_ptr_.data(),
+                                    joiner_output_names_ptr_.size());
+ 
++    // Hermeneus: reject inconsistent metadata before any decoder reads logits.
++    if (logit.empty() || !logit[0].IsTensor()) {
++      throw std::invalid_argument("Invalid transducer joiner output");
++    }
++    auto info = logit[0].GetTensorTypeAndShapeInfo();
++    auto shape = info.GetShape();
++    auto input_shape = joiner_input[0].GetTensorTypeAndShapeInfo().GetShape();
++    if (vocab_size_ <= 0 || shape.size() < 2 || input_shape.empty() ||
++        input_shape[0] <= 0 || shape[0] != input_shape[0] ||
++        shape.back() != vocab_size_ ||
++        info.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
++        static_cast<uint64_t>(shape[0]) >
++            std::numeric_limits<size_t>::max() / static_cast<size_t>(vocab_size_) ||
++        info.GetElementCount() != static_cast<size_t>(shape[0]) * vocab_size_) {
++      throw std::invalid_argument("Transducer joiner width/shape does not match decoder vocabulary");
++    }
+     return std::move(logit[0]);
+   }
+ 
+@@ -302,6 +320,9 @@
+     Ort::AllocatorWithDefaultOptions allocator;  // used in the macro below
+     SHERPA_ONNX_READ_META_DATA(vocab_size_, "vocab_size");
+     SHERPA_ONNX_READ_META_DATA(context_size_, "context_size");
++    if (vocab_size_ <= 0 || context_size_ <= 0) {
++      throw std::invalid_argument("Invalid transducer decoder metadata");
++    }
+   }
+ 
+   void InitJoiner(void *model_data, size_t model_data_length) {
+--- a/setup.py
++++ b/setup.py
+@@ -38,7 +38,7 @@
+     if cuda_version:
+         extra_version += cuda_version
+ 
+-    latest_version += extra_version
++    latest_version += extra_version + "+hermeneus.1"
+ 
+     return latest_version
+ 
+@@ -50,25 +50,7 @@
+ 
+ 
+ def get_binaries_to_install():
+-    if need_split_package():
+-        return None
+-
+-    cmake_args = os.environ.get("SHERPA_ONNX_CMAKE_ARGS", "")
+-    if "-DSHERPA_ONNX_ENABLE_BINARY=OFF" in cmake_args:
+-        return None
+-
+-    bin_dir = Path("build") / "sherpa_onnx" / "bin"
+-    bin_dir.mkdir(parents=True, exist_ok=True)
+-    suffix = ".exe" if is_windows() else ""
+-
+-    binaries = get_binaries()
+-
+-    exe = []
+-    for f in binaries:
+-        suffix = "" if (".dll" in f or ".lib" in f) else suffix
+-        t = bin_dir / (f + suffix)
+-        exe.append(str(t))
+-    return exe
++    return []
+ 
+ 
+ setuptools.setup(
+--- a/sherpa-onnx/python/sherpa_onnx/__init__.py
++++ b/sherpa-onnx/python/sherpa_onnx/__init__.py
+@@ -1,97 +1,10 @@
++# Hermeneus exposes only the reviewed offline diarization API.
++# Upstream TTS, microphone, websocket and recognizer frontends are not exported.
+ from sherpa_onnx.lib._sherpa_onnx import (
+-    Alsa,
+-    AudioEvent,
+-    AudioTagging,
+-    AudioTaggingConfig,
+-    AudioTaggingModelConfig,
+-    CircularBuffer,
+-    DenoisedAudio,
+-    FastClustering,
+-    FastClusteringConfig,
+-    FeatureExtractorConfig,
+-    GenerationConfig,
+-    HomophoneReplacerConfig,
+-    OfflineCanaryModelConfig,
+-    OfflineCohereTranscribeModelConfig,
+-    OfflineCtcFstDecoderConfig,
+-    OfflineDiacritization,
+-    OfflineDiacritizationConfig,
+-    OfflineDiacritizationModelConfig,
+-    OfflineDolphinModelConfig,
+-    OfflineFireRedAsrModelConfig,
+-    OfflineFunASRNanoModelConfig,
+-    OfflineLMConfig,
+-    OfflineModelConfig,
+-    OfflineMoonshineModelConfig,
+-    OfflineNemoEncDecCtcModelConfig,
+-    OfflineParaformerModelConfig,
+-    OfflinePunctuation,
+-    OfflinePunctuationConfig,
+-    OfflinePunctuationModelConfig,
+-    OfflineQwen3ASRModelConfig,
+-    OfflineRecognizerConfig,
+-    OfflineSenseVoiceModelConfig,
+-    OfflineSourceSeparation,
+-    OfflineSourceSeparationConfig,
+-    OfflineSourceSeparationModelConfig,
+-    OfflineSourceSeparationSpleeterModelConfig,
+-    OfflineSourceSeparationUvrModelConfig,
+     OfflineSpeakerDiarization,
+     OfflineSpeakerDiarizationConfig,
+-    OfflineSpeakerDiarizationResult,
+-    OfflineSpeakerDiarizationSegment,
+     OfflineSpeakerSegmentationModelConfig,
+     OfflineSpeakerSegmentationPyannoteModelConfig,
+-    OfflineSpeechDenoiser,
+-    OfflineSpeechDenoiserConfig,
+-    OfflineSpeechDenoiserDpdfNetModelConfig,
+-    OfflineSpeechDenoiserGtcrnModelConfig,
+-    OfflineSpeechDenoiserModelConfig,
+-    OfflineStream,
+-    OfflineTdnnModelConfig,
+-    OfflineTransducerModelConfig,
+-    OfflineTts,
+-    OfflineTtsConfig,
+-    OfflineTtsKittenModelConfig,
+-    OfflineTtsKokoroModelConfig,
+-    OfflineTtsMatchaModelConfig,
+-    OfflineTtsModelConfig,
+-    OfflineTtsPocketModelConfig,
+-    OfflineTtsSupertonicModelConfig,
+-    OfflineTtsVitsModelConfig,
+-    OfflineTtsZipvoiceModelConfig,
+-    OfflineWenetCtcModelConfig,
+-    OfflineWhisperModelConfig,
+-    OfflineZipformerAudioTaggingModelConfig,
+-    OfflineZipformerCtcModelConfig,
+-    OnlinePunctuation,
+-    OnlinePunctuationConfig,
+-    OnlinePunctuationModelConfig,
+-    OnlineSpeechDenoiser,
+-    OnlineSpeechDenoiserConfig,
+-    OnlineStream,
+-    SentencePieceTokenizer,
+-    SileroVadModelConfig,
+-    SpeakerEmbeddingExtractor,
+     SpeakerEmbeddingExtractorConfig,
+-    SpeakerEmbeddingManager,
+-    SpeechSegment,
+-    SpokenLanguageIdentification,
+-    SpokenLanguageIdentificationConfig,
+-    SpokenLanguageIdentificationWhisperConfig,
+-    TenVadModelConfig,
+-    VadModel,
+-    VadModelConfig,
+-    VoiceActivityDetector,
+-    git_date,
+-    git_sha1,
+-    onnxruntime_version,
+-    version,
+-    write_wave,
++    FastClusteringConfig,
+ )
+-
+-from .display import Display
+-from .keyword_spotter import KeywordSpotter
+-from .offline_recognizer import OfflineRecognizer
+-from .online_recognizer import OnlineRecognizer
+-from .utils import text2token

@@ -1,0 +1,21 @@
+{
+  "version": "1.13.8+hermeneus.1",
+  "source_commit": "11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf",
+  "source_sha256": "7ee4f2d117bf72a0651146535b9158d62f11a86520e68142270ca9a35a9032b7",
+  "patch_sha256": "833d73f98b8d8c652cab7c1df9d5cc7d1821e2f104eb34172ba63eb6578a5c5d",
+  "recipe_sha256": "bf6b33413e26e3111d2a8a674a76b1509752c8739a4ce12e7284f9b30c66926c",
+  "wheel_sha256": "55374627ac4ba34aea3199ef97946cf4ae7a7941947e02616492ce69a49d0ef3",
+  "wheel_name": "sherpa_onnx-1.13.8+hermeneus.1-cp311-cp311-macosx_14_0_arm64.whl",
+  "flags": "-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_ARCHITECTURES=arm64 -DSHERPA_ONNX_ENABLE_BINARY=OFF -DSHERPA_ONNX_ENABLE_TTS=OFF -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF -DSHERPA_ONNX_ENABLE_C_API=OFF -DSHERPA_ONNX_USE_PRE_INSTALLED_ONNXRUNTIME_IF_AVAILABLE=OFF -DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+  "minimum_macos": "14.0",
+  "architecture": "arm64",
+  "native_files": {
+    "build/lib.macosx-11.0-arm64-cpython-311/sherpa_onnx/lib/_sherpa_onnx.cpython-311-darwin.so": "63035ae305f8263e92832895f8c10da8170ed02fd79a0172e45789465471ab8a",
+    "build/lib.macosx-11.0-arm64-cpython-311/sherpa_onnx/lib/libonnxruntime.dylib": "b0613d0ae53199a83b05fa48e169211498e9d40d54beaa372068ebe5ec5b0929",
+    "build/temp.macosx-11.0-arm64-cpython-311/_deps/onnxruntime-src/lib/libonnxruntime.dylib": "b0613d0ae53199a83b05fa48e169211498e9d40d54beaa372068ebe5ec5b0929",
+    "build/temp.macosx-11.0-arm64-cpython-311/lib/_sherpa_onnx.cpython-311-darwin.so": "4652d3d3b107cbfb85860e842d49772363497ba55a87dc1466aea1684d2b2128"
+  },
+  "cmake_version": "cmake version 4.4.4",
+  "frozen_binary_sha256": "12af7eb3252aad281a2e6ddaecd003db56963090e2d80a116aa170a2fab2b1d7",
+  "packaged_binary_sha256": "12af7eb3252aad281a2e6ddaecd003db56963090e2d80a116aa170a2fab2b1d7"
+}

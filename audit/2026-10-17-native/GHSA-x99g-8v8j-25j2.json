@@ -1,0 +1,71 @@
+{
+  "ghsa_id": "GHSA-x99g-8v8j-25j2",
+  "cve_id": "CVE-2026-7020",
+  "url": "https://api.github.com/advisories/GHSA-x99g-8v8j-25j2",
+  "html_url": "https://github.com/advisories/GHSA-x99g-8v8j-25j2",
+  "summary": "Ollama is Vulnerable to Path Traversal",
+  "description": "A security flaw has been discovered in Ollama up to 0.20.2. This affects the function digestToPath of the file x/imagegen/transfer/transfer.go of the component Tensor Model Transfer Handler. The manipulation of the argument digest results in path traversal. The attack may be performed from remote. This attack is characterized by high complexity. The exploitability is reported as difficult. The exploit has been released to the public and may be used for attacks. The vendor was contacted early about this disclosure but did not respond in any way.",
+  "type": "reviewed",
+  "severity": "low",
+  "repository_advisory_url": null,
+  "source_code_location": "https://github.com/ollama/ollama",
+  "identifiers": [
+    {
+      "value": "GHSA-x99g-8v8j-25j2",
+      "type": "GHSA"
+    },
+    {
+      "value": "CVE-2026-7020",
+      "type": "CVE"
+    }
+  ],
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2026-7020",
+    "https://vuldb.com/submit/797576",
+    "https://vuldb.com/vuln/359599",
+    "https://vuldb.com/vuln/359599/cti",
+    "https://github.com/advisories/GHSA-x99g-8v8j-25j2"
+  ],
+  "published_at": "2026-04-26T06:31:16Z",
+  "updated_at": "2026-05-05T20:33:29Z",
+  "github_reviewed_at": "2026-05-05T20:33:28Z",
+  "nvd_published_at": "2026-04-26T05:16:02Z",
+  "withdrawn_at": null,
+  "vulnerabilities": [
+    {
+      "package": {
+        "ecosystem": "go",
+        "name": "github.com/ollama/ollama"
+      },
+      "vulnerable_version_range": "<= 0.20.2",
+      "first_patched_version": null,
+      "vulnerable_functions": []
+    }
+  ],
+  "cvss_severities": {
+    "cvss_v3": {
+      "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
+      "score": 5.6
+    },
+    "cvss_v4": {
+      "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N/E:P",
+      "score": 2.9
+    }
+  },
+  "cwes": [
+    {
+      "cwe_id": "CWE-22",
+      "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+    }
+  ],
+  "credits": [],
+  "comments": 0,
+  "cvss": {
+    "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
+    "score": 5.6
+  },
+  "epss": {
+    "percentage": 0.009,
+    "percentile": 0.58518
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "go_files_scanned": 910,
+  "matches": [
+    {
+      "file": "ollama-0.40.6/auth/auth.go",
+      "line": 16,
+      "source": "\"golang.org/x/crypto/ssh\""
+    },
+    {
+      "file": "ollama-0.40.6/cmd/cmd.go",
+      "line": 37,
+      "source": "\"golang.org/x/crypto/ssh\""
+    },
+    {
+      "file": "ollama-0.40.6/internal/decisiontest/corpus.go",
+      "line": 21,
+      "source": "_ \"golang.org/x/image/webp\""
+    },
+    {
+      "file": "ollama-0.40.6/llm/llama_server.go",
+      "line": 45,
+      "source": "\"golang.org/x/image/webp\""
+    },
+    {
+      "file": "ollama-0.40.6/mlxrunner/model/media.go",
+      "line": 10,
+      "source": "_ \"golang.org/x/image/webp\""
+    },
+    {
+      "file": "ollama-0.40.6/server/model_recommendations_test.go",
+      "line": 27,
+      "source": "\"golang.org/x/crypto/ssh\""
+    },
+    {
+      "file": "ollama-0.40.6/server/routes.go",
+      "line": 31,
+      "source": "\"golang.org/x/image/webp\""
+    }
+  ]
+}

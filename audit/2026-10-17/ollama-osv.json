@@ -1,0 +1,785 @@
+[
+  {
+    "name": "github.com/agnivade/levenshtein",
+    "version": "1.1.1",
+    "result": {}
+  },
+  {
+    "name": "github.com/aymanbagabas/go-osc52/v2",
+    "version": "2.0.1",
+    "result": {}
+  },
+  {
+    "name": "github.com/bahlo/generic-list-go",
+    "version": "0.2.0",
+    "result": {}
+  },
+  {
+    "name": "github.com/buger/jsonparser",
+    "version": "1.1.1",
+    "result": {
+      "vulns": [
+        {
+          "id": "GHSA-6g7g-w4f8-9c9x",
+          "modified": "2026-09-10T03:50:59.778995Z"
+        },
+        {
+          "id": "GO-2026-4514",
+          "modified": "2026-07-04T10:29:41.642536Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "github.com/charmbracelet/bubbletea",
+    "version": "1.3.10",
+    "result": {}
+  },
+  {
+    "name": "github.com/charmbracelet/colorprofile",
+    "version": "0.2.3-0.20250311203215-f60798e515dc",
+    "result": {}
+  },
+  {
+    "name": "github.com/charmbracelet/lipgloss",
+    "version": "1.1.0",
+    "result": {}
+  },
+  {
+    "name": "github.com/charmbracelet/x/ansi",
+    "version": "0.10.1",
+    "result": {}
+  },
+  {
+    "name": "github.com/charmbracelet/x/cellbuf",
+    "version": "0.0.13-0.20250311204145-2c3ea96c31dd",
+    "result": {}
+  },
+  {
+    "name": "github.com/charmbracelet/x/term",
+    "version": "0.2.1",
+    "result": {}
+  },
+  {
+    "name": "github.com/containerd/console",
+    "version": "1.0.3",
+    "result": {}
+  },
+  {
+    "name": "github.com/d4l3k/go-bfloat16",
+    "version": "0.0.0-20211005043715-690c3bdd05f1",
+    "result": {}
+  },
+  {
+    "name": "github.com/emirpasic/gods/v2",
+    "version": "2.0.0-alpha",
+    "result": {}
+  },
+  {
+    "name": "github.com/gabriel-vasile/mimetype",
+    "version": "1.4.3",
+    "result": {}
+  },
+  {
+    "name": "github.com/gin-contrib/cors",
+    "version": "1.7.2",
+    "result": {}
+  },
+  {
+    "name": "github.com/gin-contrib/sse",
+    "version": "0.1.0",
+    "result": {}
+  },
+  {
+    "name": "github.com/gin-gonic/gin",
+    "version": "1.10.0",
+    "result": {}
+  },
+  {
+    "name": "github.com/go-playground/locales",
+    "version": "0.14.1",
+    "result": {}
+  },
+  {
+    "name": "github.com/go-playground/universal-translator",
+    "version": "0.18.1",
+    "result": {}
+  },
+  {
+    "name": "github.com/go-playground/validator/v10",
+    "version": "10.20.0",
+    "result": {}
+  },
+  {
+    "name": "github.com/google/uuid",
+    "version": "1.6.0",
+    "result": {}
+  },
+  {
+    "name": "github.com/klauspost/compress",
+    "version": "1.18.3",
+    "result": {
+      "vulns": [
+        {
+          "id": "GO-2026-5841",
+          "modified": "2026-09-30T03:55:34.839663Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "github.com/leodido/go-urn",
+    "version": "1.4.0",
+    "result": {}
+  },
+  {
+    "name": "github.com/lucasb-eyer/go-colorful",
+    "version": "1.2.0",
+    "result": {}
+  },
+  {
+    "name": "github.com/mailru/easyjson",
+    "version": "0.7.7",
+    "result": {}
+  },
+  {
+    "name": "github.com/mattn/go-isatty",
+    "version": "0.0.20",
+    "result": {}
+  },
+  {
+    "name": "github.com/mattn/go-runewidth",
+    "version": "0.0.16",
+    "result": {}
+  },
+  {
+    "name": "github.com/mattn/go-sqlite3",
+    "version": "1.14.24",
+    "result": {}
+  },
+  {
+    "name": "github.com/muesli/ansi",
+    "version": "0.0.0-20230316100256-276c6243b2f6",
+    "result": {}
+  },
+  {
+    "name": "github.com/muesli/cancelreader",
+    "version": "0.2.2",
+    "result": {}
+  },
+  {
+    "name": "github.com/muesli/termenv",
+    "version": "0.16.0",
+    "result": {}
+  },
+  {
+    "name": "github.com/olekukonko/tablewriter",
+    "version": "0.0.5",
+    "result": {}
+  },
+  {
+    "name": "github.com/pelletier/go-toml/v2",
+    "version": "2.2.2",
+    "result": {}
+  },
+  {
+    "name": "github.com/pkg/browser",
+    "version": "0.0.0-20240102092130-5ac0b6a4141c",
+    "result": {}
+  },
+  {
+    "name": "github.com/rivo/uniseg",
+    "version": "0.4.7",
+    "result": {}
+  },
+  {
+    "name": "github.com/spf13/cobra",
+    "version": "1.7.0",
+    "result": {}
+  },
+  {
+    "name": "github.com/spf13/pflag",
+    "version": "1.0.5",
+    "result": {}
+  },
+  {
+    "name": "github.com/ugorji/go/codec",
+    "version": "1.2.12",
+    "result": {}
+  },
+  {
+    "name": "github.com/wk8/go-ordered-map/v2",
+    "version": "2.1.8",
+    "result": {}
+  },
+  {
+    "name": "github.com/x448/float16",
+    "version": "0.8.4",
+    "result": {}
+  },
+  {
+    "name": "github.com/xo/terminfo",
+    "version": "0.0.0-20220910002029-abceb7e1c41e",
+    "result": {}
+  },
+  {
+    "name": "golang.org/x/crypto",
+    "version": "0.43.0",
+    "result": {
+      "vulns": [
+        {
+          "id": "GHSA-45gg-vh54-h5m9",
+          "modified": "2026-09-10T03:51:07.761861Z"
+        },
+        {
+          "id": "GHSA-5cgq-3rg8-m6cv",
+          "modified": "2026-09-10T03:50:48.271021Z"
+        },
+        {
+          "id": "GHSA-78mq-xcr3-xm33",
+          "modified": "2026-09-11T15:45:36.488635Z"
+        },
+        {
+          "id": "GHSA-89gr-r52h-f8rx",
+          "modified": "2026-09-10T03:50:48.773810Z"
+        },
+        {
+          "id": "GHSA-9m57-25v3-79x9",
+          "modified": "2026-09-10T03:50:55.369516Z"
+        },
+        {
+          "id": "GHSA-f5wc-c3c7-36mc",
+          "modified": "2026-09-10T03:50:49.274413Z"
+        },
+        {
+          "id": "GHSA-f6x5-jh6r-wrfv",
+          "modified": "2026-09-10T03:50:30.884151Z"
+        },
+        {
+          "id": "GHSA-j5w8-q4qc-rx2x",
+          "modified": "2026-09-10T03:50:30.983878Z"
+        },
+        {
+          "id": "GHSA-jppx-rxg9-jmrx",
+          "modified": "2026-09-10T03:50:50.029914Z"
+        },
+        {
+          "id": "GHSA-q4h4-gmj2-qvw2",
+          "modified": "2026-09-10T03:50:50.202568Z"
+        },
+        {
+          "id": "GHSA-qpw4-5x99-6vjp",
+          "modified": "2026-09-10T03:50:50.295705Z"
+        },
+        {
+          "id": "GHSA-rm3j-f69w-wqmq",
+          "modified": "2026-09-10T03:50:50.499928Z"
+        },
+        {
+          "id": "GHSA-vgwf-h737-ff37",
+          "modified": "2026-09-15T12:45:34.863978Z"
+        },
+        {
+          "id": "GHSA-w879-237q-wc7r",
+          "modified": "2026-09-10T03:50:50.833802Z"
+        },
+        {
+          "id": "GHSA-x527-x647-q7gg",
+          "modified": "2026-09-10T03:50:51.157351Z"
+        },
+        {
+          "id": "GO-2025-4134",
+          "modified": "2026-05-15T10:59:24.784913Z"
+        },
+        {
+          "id": "GO-2025-4135",
+          "modified": "2026-05-15T10:59:23.314668Z"
+        },
+        {
+          "id": "GO-2026-5005",
+          "modified": "2026-08-11T21:30:12.082532Z"
+        },
+        {
+          "id": "GO-2026-5006",
+          "modified": "2026-09-15T10:41:37.126500Z"
+        },
+        {
+          "id": "GO-2026-5013",
+          "modified": "2026-09-17T10:41:36.216580Z"
+        },
+        {
+          "id": "GO-2026-5014",
+          "modified": "2026-07-17T10:29:28.281906Z"
+        },
+        {
+          "id": "GO-2026-5015",
+          "modified": "2026-09-22T10:41:48.922257Z"
+        },
+        {
+          "id": "GO-2026-5016",
+          "modified": "2026-09-22T10:41:47.670428Z"
+        },
+        {
+          "id": "GO-2026-5017",
+          "modified": "2026-09-23T10:41:39.176153Z"
+        },
+        {
+          "id": "GO-2026-5018",
+          "modified": "2026-09-15T10:41:37.191404Z"
+        },
+        {
+          "id": "GO-2026-5019",
+          "modified": "2026-09-17T10:41:36.871169Z"
+        },
+        {
+          "id": "GO-2026-5020",
+          "modified": "2026-09-22T10:41:48.726876Z"
+        },
+        {
+          "id": "GO-2026-5021",
+          "modified": "2026-09-15T10:41:37.077781Z"
+        },
+        {
+          "id": "GO-2026-5023",
+          "modified": "2026-07-17T10:29:28.571176Z"
+        },
+        {
+          "id": "GO-2026-5033",
+          "modified": "2026-09-22T10:41:48.813027Z"
+        },
+        {
+          "id": "GO-2026-5932",
+          "modified": "2026-07-10T05:44:31.101996Z"
+        },
+        {
+          "id": "GO-2026-6303",
+          "modified": "2026-08-29T10:10:52.440319Z"
+        },
+        {
+          "id": "GO-2026-6354",
+          "modified": "2026-09-03T10:10:55.147673Z"
+        },
+        {
+          "id": "GO-2026-6355",
+          "modified": "2026-09-24T10:41:42.556134Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "golang.org/x/image",
+    "version": "0.22.0",
+    "result": {
+      "vulns": [
+        {
+          "id": "GHSA-44p7-9xx4-hf2g",
+          "modified": "2026-09-10T03:50:36.938186Z"
+        },
+        {
+          "id": "GHSA-q675-qj96-32m9",
+          "modified": "2026-09-10T03:51:11.816647Z"
+        },
+        {
+          "id": "GO-2026-4815",
+          "modified": "2026-05-15T10:59:23.820275Z"
+        },
+        {
+          "id": "GO-2026-4961",
+          "modified": "2026-06-25T18:45:14.933531Z"
+        },
+        {
+          "id": "GO-2026-4962",
+          "modified": "2026-09-22T10:41:47.722840Z"
+        },
+        {
+          "id": "GO-2026-5031",
+          "modified": "2026-09-22T10:41:48.522670Z"
+        },
+        {
+          "id": "GO-2026-5032",
+          "modified": "2026-07-02T21:26:03.734268Z"
+        },
+        {
+          "id": "GO-2026-5061",
+          "modified": "2026-06-26T13:44:18.873843Z"
+        },
+        {
+          "id": "GO-2026-5062",
+          "modified": "2026-06-26T13:44:19.052864Z"
+        },
+        {
+          "id": "GO-2026-5066",
+          "modified": "2026-06-27T06:14:20.408848Z"
+        },
+        {
+          "id": "GO-2026-6222",
+          "modified": "2026-08-15T09:41:53.891904Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "golang.org/x/mod",
+    "version": "0.30.0",
+    "result": {
+      "vulns": [
+        {
+          "id": "GO-2026-6179",
+          "modified": "2026-08-19T12:25:40.780492Z"
+        },
+        {
+          "id": "GO-2026-6180",
+          "modified": "2026-08-19T12:25:49.995487Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "golang.org/x/net",
+    "version": "0.46.0",
+    "result": {
+      "vulns": [
+        {
+          "id": "GHSA-5cv4-jp36-h3mw",
+          "modified": "2026-09-10T03:50:45.494180Z"
+        },
+        {
+          "id": "GO-2026-4918",
+          "modified": "2026-10-16T10:42:05.228443Z"
+        },
+        {
+          "id": "GO-2026-5025",
+          "modified": "2026-05-30T05:14:17.563517Z"
+        },
+        {
+          "id": "GO-2026-5026",
+          "modified": "2026-10-16T10:42:05.164302Z"
+        },
+        {
+          "id": "GO-2026-5027",
+          "modified": "2026-09-22T10:41:48.597564Z"
+        },
+        {
+          "id": "GO-2026-5028",
+          "modified": "2026-07-01T18:26:19.971496Z"
+        },
+        {
+          "id": "GO-2026-5029",
+          "modified": "2026-09-22T10:41:48.499970Z"
+        },
+        {
+          "id": "GO-2026-5030",
+          "modified": "2026-09-22T10:41:47.813482Z"
+        },
+        {
+          "id": "GO-2026-5942",
+          "modified": "2026-08-17T12:25:32.471119Z"
+        },
+        {
+          "id": "GO-2026-6603",
+          "modified": "2026-10-16T09:55:47.068117Z"
+        },
+        {
+          "id": "GO-2026-6610",
+          "modified": "2026-10-16T09:56:04.364467Z"
+        },
+        {
+          "id": "GO-2026-6611",
+          "modified": "2026-10-16T09:55:38.952277Z"
+        },
+        {
+          "id": "GO-2026-6612",
+          "modified": "2026-10-16T09:55:54.129082Z"
+        },
+        {
+          "id": "GO-2026-6617",
+          "modified": "2026-10-16T09:55:57.350751Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "golang.org/x/sync",
+    "version": "0.17.0",
+    "result": {}
+  },
+  {
+    "name": "golang.org/x/sys",
+    "version": "0.37.0",
+    "result": {
+      "vulns": [
+        {
+          "id": "GO-2026-5024",
+          "modified": "2026-06-09T18:59:22.740765Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "golang.org/x/term",
+    "version": "0.36.0",
+    "result": {}
+  },
+  {
+    "name": "golang.org/x/text",
+    "version": "0.30.0",
+    "result": {
+      "vulns": [
+        {
+          "id": "GO-2026-5970",
+          "modified": "2026-09-23T10:41:39.386264Z"
+        },
+        {
+          "id": "GO-2026-6629",
+          "modified": "2026-10-07T17:45:13.919634Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "google.golang.org/protobuf",
+    "version": "1.34.1",
+    "result": {}
+  },
+  {
+    "name": "gopkg.in/yaml.v3",
+    "version": "3.0.1",
+    "result": {}
+  },
+  {
+    "name": "github.com/ollama/ollama",
+    "version": "0.40.6",
+    "result": {
+      "vulns": [
+        {
+          "id": "GO-2025-3557",
+          "modified": "2026-06-30T19:59:22.975958Z"
+        },
+        {
+          "id": "GO-2025-3558",
+          "modified": "2026-06-26T18:59:15.657739Z"
+        },
+        {
+          "id": "GO-2025-3559",
+          "modified": "2026-06-30T19:59:22.819212Z"
+        },
+        {
+          "id": "GO-2025-3582",
+          "modified": "2026-06-30T19:59:23.274236Z"
+        },
+        {
+          "id": "GO-2025-3689",
+          "modified": "2026-06-27T18:29:23.488799Z"
+        },
+        {
+          "id": "GO-2025-3695",
+          "modified": "2026-06-10T12:11:03.946507Z"
+        },
+        {
+          "id": "GO-2025-3824",
+          "modified": "2026-06-10T12:11:14.407643Z"
+        },
+        {
+          "id": "GO-2025-4251",
+          "modified": "2026-08-07T08:12:00.683324Z"
+        },
+        {
+          "id": "GO-2026-5750",
+          "modified": "2026-07-27T17:00:22.566928Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "stdlib",
+    "version": "1.26.0",
+    "result": {
+      "vulns": [
+        {
+          "id": "GO-2026-4599",
+          "modified": "2026-10-07T10:41:46.086312Z"
+        },
+        {
+          "id": "GO-2026-4600",
+          "modified": "2026-05-15T10:59:23.758905Z"
+        },
+        {
+          "id": "GO-2026-4601",
+          "modified": "2026-10-16T10:42:06.560940Z"
+        },
+        {
+          "id": "GO-2026-4602",
+          "modified": "2026-05-15T10:59:23.640277Z"
+        },
+        {
+          "id": "GO-2026-4603",
+          "modified": "2026-05-15T10:59:23.946663Z"
+        },
+        {
+          "id": "GO-2026-4864",
+          "modified": "2026-09-29T10:56:43.071592Z"
+        },
+        {
+          "id": "GO-2026-4865",
+          "modified": "2026-10-07T10:41:46.025548Z"
+        },
+        {
+          "id": "GO-2026-4866",
+          "modified": "2026-10-14T10:56:59.645388Z"
+        },
+        {
+          "id": "GO-2026-4869",
+          "modified": "2026-10-07T10:41:45.714787Z"
+        },
+        {
+          "id": "GO-2026-4870",
+          "modified": "2026-10-03T10:41:52.139752Z"
+        },
+        {
+          "id": "GO-2026-4918",
+          "modified": "2026-10-16T10:42:05.228443Z"
+        },
+        {
+          "id": "GO-2026-4946",
+          "modified": "2026-10-03T10:41:52.434115Z"
+        },
+        {
+          "id": "GO-2026-4947",
+          "modified": "2026-10-03T10:41:52.559243Z"
+        },
+        {
+          "id": "GO-2026-4970",
+          "modified": "2026-09-16T10:41:36.578014Z"
+        },
+        {
+          "id": "GO-2026-4971",
+          "modified": "2026-08-26T10:42:13.474920Z"
+        },
+        {
+          "id": "GO-2026-4976",
+          "modified": "2026-08-31T10:25:58.969613Z"
+        },
+        {
+          "id": "GO-2026-4977",
+          "modified": "2026-10-07T10:41:46.157915Z"
+        },
+        {
+          "id": "GO-2026-4980",
+          "modified": "2026-08-31T10:25:58.429372Z"
+        },
+        {
+          "id": "GO-2026-4981",
+          "modified": "2026-09-29T10:56:43.305065Z"
+        },
+        {
+          "id": "GO-2026-4982",
+          "modified": "2026-08-31T10:25:58.456781Z"
+        },
+        {
+          "id": "GO-2026-4986",
+          "modified": "2026-10-07T10:41:45.865352Z"
+        },
+        {
+          "id": "GO-2026-5026",
+          "modified": "2026-10-16T10:42:05.164302Z"
+        },
+        {
+          "id": "GO-2026-5037",
+          "modified": "2026-10-02T10:41:43.926190Z"
+        },
+        {
+          "id": "GO-2026-5038",
+          "modified": "2026-10-15T10:41:54.242607Z"
+        },
+        {
+          "id": "GO-2026-5039",
+          "modified": "2026-10-03T10:41:52.575378Z"
+        },
+        {
+          "id": "GO-2026-5856",
+          "modified": "2026-10-03T10:41:52.186009Z"
+        },
+        {
+          "id": "GO-2026-5942",
+          "modified": "2026-08-17T12:25:32.471119Z"
+        },
+        {
+          "id": "GO-2026-5972",
+          "modified": "2026-10-15T10:41:59.392633Z"
+        },
+        {
+          "id": "GO-2026-6088",
+          "modified": "2026-10-07T10:41:46.001674Z"
+        },
+        {
+          "id": "GO-2026-6089",
+          "modified": "2026-10-07T10:41:45.889550Z"
+        },
+        {
+          "id": "GO-2026-6090",
+          "modified": "2026-10-15T10:41:56.803688Z"
+        },
+        {
+          "id": "GO-2026-6091",
+          "modified": "2026-10-15T10:41:54.327468Z"
+        },
+        {
+          "id": "GO-2026-6218",
+          "modified": "2026-10-15T10:41:57.100575Z"
+        },
+        {
+          "id": "GO-2026-6599",
+          "modified": "2026-10-16T09:56:07.322750Z"
+        },
+        {
+          "id": "GO-2026-6600",
+          "modified": "2026-10-16T09:55:33.023061Z"
+        },
+        {
+          "id": "GO-2026-6603",
+          "modified": "2026-10-16T09:55:47.068117Z"
+        },
+        {
+          "id": "GO-2026-6604",
+          "modified": "2026-10-16T09:55:42.275912Z"
+        },
+        {
+          "id": "GO-2026-6605",
+          "modified": "2026-10-16T09:55:59.367370Z"
+        },
+        {
+          "id": "GO-2026-6607",
+          "modified": "2026-10-16T09:55:33.249742Z"
+        },
+        {
+          "id": "GO-2026-6608",
+          "modified": "2026-10-16T09:55:56.456473Z"
+        },
+        {
+          "id": "GO-2026-6609",
+          "modified": "2026-10-16T09:55:48.967432Z"
+        },
+        {
+          "id": "GO-2026-6610",
+          "modified": "2026-10-16T09:56:04.364467Z"
+        },
+        {
+          "id": "GO-2026-6611",
+          "modified": "2026-10-16T09:55:38.952277Z"
+        },
+        {
+          "id": "GO-2026-6612",
+          "modified": "2026-10-16T09:55:54.129082Z"
+        },
+        {
+          "id": "GO-2026-6613",
+          "modified": "2026-10-16T09:55:43.259958Z"
+        },
+        {
+          "id": "GO-2026-6617",
+          "modified": "2026-10-16T09:55:57.350751Z"
+        }
+      ]
+    }
+  }
+]
