@@ -5,7 +5,7 @@ import AudioCore
 public actor WhisperASREngine: ASREngine {
     private let serverURL: URL
     
-    public init(serverURL: URL = URL(string: "http://localhost:8080/inference")!) {
+    public init(serverURL: URL = LocalServiceAccess.asrHTTPURL) {
         self.serverURL = serverURL
     }
     
@@ -22,7 +22,7 @@ public actor WhisperASREngine: ASREngine {
         return AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let (data, response) = try await URLSession.shared.data(for: request)
+                    let (data, response) = try await LocalServiceAccess.session.data(for: request)
                     guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                         continuation.yield(.final("", meta: ASRMeta(confidence: 0, durationMs: segment.audio.durationMs)))
                         continuation.finish()
@@ -49,6 +49,7 @@ public actor WhisperASREngine: ASREngine {
     private func buildTranscribeRequest(wavData: Data, language: String) -> URLRequest {
         var request = URLRequest(url: serverURL)
         request.httpMethod = "POST"
+        LocalServiceAccess.authorize(&request)
         let boundary = "Boundary-\(UUID().uuidString)"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 20.0
@@ -82,10 +83,13 @@ public actor WhisperASREngine: ASREngine {
             }
         }
         
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
-        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let privateDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: privateDirectory) }
+        let tempURL = privateDirectory.appendingPathComponent("speech.wav")
         
         do {
+            try FileManager.default.createDirectory(at: privateDirectory, withIntermediateDirectories: false,
+                                                    attributes: [.posixPermissions: 0o700])
             let settings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatLinearPCM,
                 AVSampleRateKey: rate,

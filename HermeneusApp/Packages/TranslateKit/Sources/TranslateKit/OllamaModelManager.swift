@@ -1,4 +1,5 @@
 import Foundation
+import AudioCore
 import Combine
 
 // MARK: - OllamaModelManager
@@ -26,7 +27,7 @@ public actor OllamaModelManager {
     private let defaults: UserDefaults
 
     public init(
-        baseURL: URL = URL(string: "http://localhost:11434")!,
+        baseURL: URL = LocalServiceAccess.ollamaBaseURL,
         // 优先级列表：探测到就用；越靠前优先级越高。
         // 默认 3b 优先是因为同传场景要的是首字延迟，不是极限翻译质量。
         preferredOrder: [String] = ["qwen2.5:3b", "qwen2.5:7b"],
@@ -45,8 +46,9 @@ public actor OllamaModelManager {
     public func fetchInstalledModels() async -> [ModelInfo] {
         do {
             var request = URLRequest(url: tagsEndpoint)
+            LocalServiceAccess.authorizeOllama(&request)
             request.timeoutInterval = 3.0
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await LocalServiceAccess.session.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 return []
             }

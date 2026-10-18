@@ -25,12 +25,41 @@ if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
 
+# Adopt the two sockets before importing AI code or printing to stdout. In a
+# packaged app stdin/stdout carry listeners; diagnostics go to stderr instead.
+_INHERITED_HTTP_SOCKET = None
+_INHERITED_WS_SOCKET = None
+if "HERMENEUS_ASR_HTTP_FD" in os.environ or "HERMENEUS_ASR_WS_FD" in os.environ:
+    from asr_security import inherited_listener
+    _INHERITED_HTTP_SOCKET = inherited_listener(os.environ["HERMENEUS_ASR_HTTP_FD"], int(os.environ["ASR_HTTP_PORT"]))
+    _INHERITED_WS_SOCKET = inherited_listener(os.environ["HERMENEUS_ASR_WS_FD"], int(os.environ["ASR_WS_PORT"]))
+    os.dup2(2, 1)
+
 # Full DMG reuses the already-packaged ASR runtime for offline batch work.
 # Dispatch before importing real-time server dependencies or binding any ports.
 if "--offline-batch" in sys.argv:
     sys.argv.remove("--offline-batch")
     from offline_batch_worker import main as offline_batch_main
     raise SystemExit(offline_batch_main())
+
+
+# A packaging gate can check setup compatibility without importing AI libraries.
+if "--setup-check" in sys.argv:
+    print('{"service":"hermeneus-asr","setup_protocol":2}')
+    raise SystemExit(0)
+
+
+# Packaging smoke test: imports real dependencies, but no model download/listener.
+if "--runtime-check" in sys.argv:
+    os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+    import torch
+    import torchaudio
+    from funasr import AutoModel
+    from faster_whisper import WhisperModel
+    import soundfile
+    import websockets
+    print("Hermeneus ASR dependency imports passed")
+    raise SystemExit(0)
 
 
 def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
@@ -52,6 +81,9 @@ for _env in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 import io
+import subprocess
+import shutil
+from asr_security import authorized
 import re
 import json
 import time
@@ -68,7 +100,7 @@ torch.set_num_threads(_THREAD_CAP)
 torch.set_num_interop_threads(1)
 
 import websockets
-from bottle import route, run, request, response, WSGIRefServer
+from bottle import route, run, request, response, WSGIRefServer, default_app, BaseRequest
 from socketserver import ThreadingMixIn
 from wsgiref.simple_server import WSGIServer
 
@@ -97,13 +129,15 @@ WHISPER_MODEL_SIZE = os.environ.get("WHISPER_MODEL_SIZE", "small")
 _IS_APPLE_SILICON = (platform.system() == "Darwin" and platform.machine() == "arm64")
 _USE_MLX = _IS_APPLE_SILICON and os.environ.get("USE_MLX_WHISPER", "1") != "0"
 
-WS_HOST = os.environ.get("ASR_WS_HOST", "localhost")
+WS_HOST = "127.0.0.1"
 WS_PORT = int(os.environ.get("ASR_WS_PORT", "8081"))
 HTTP_PORT = int(os.environ.get("ASR_HTTP_PORT", "8080"))
 
 # Bound untrusted/local IPC input so a stalled or malformed client cannot grow
 # memory without limit. Environment values are deliberately explicit for tuning.
 MAX_HTTP_REQUEST_BYTES = _positive_int_env("ASR_MAX_HTTP_REQUEST_BYTES", 4 * 1024 * 1024)
+# Keep bounded HTTP speech uploads in memory rather than spilling to shared temp.
+BaseRequest.MEMFILE_MAX = MAX_HTTP_REQUEST_BYTES + 65536
 MAX_WS_FRAME_BYTES = _positive_int_env("ASR_MAX_WS_FRAME_BYTES", 512 * 1024)
 MAX_SESSION_SECONDS = _positive_int_env("ASR_MAX_SESSION_SECONDS", 45)
 MAX_SESSION_BYTES = TARGET_SR * 2 * MAX_SESSION_SECONDS
@@ -126,9 +160,12 @@ REMOTE_SESSION_SEMAPHORE = None
 LOCAL_SESSION_SEMAPHORE = None
 WHISPER_FINAL_PENDING = 0
 
+IPC_TOKEN = os.environ.get("HERMENEUS_ASR_TOKEN", "")
+if len(IPC_TOKEN) < 32:
+    raise RuntimeError("Start the ASR service through Hermeneus to supply its local IPC capability")
+
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
-if WS_HOST not in _LOOPBACK_HOSTS and os.environ.get("ASR_ALLOW_REMOTE", "0") != "1":
-    raise RuntimeError("Refusing a non-loopback ASR listener. Set ASR_ALLOW_REMOTE=1 only behind authenticated TLS.")
+# Desktop IPC is always local. Remote access requires a separately designed gateway.
 
 print(f"⏳ [线程策略] CPU核心={_CPU_COUNT}, 每引擎线程上限={_THREAD_CAP}, device={DEVICE}")
 print(f"🔒 [资源上限] HTTP={MAX_HTTP_REQUEST_BYTES}B, WS帧={MAX_WS_FRAME_BYTES}B, 会话={MAX_SESSION_SECONDS}s, 并发={MAX_CONCURRENT_SESSIONS}")
@@ -187,6 +224,7 @@ try:
         vad_model=None,
         punc_model=None,
         spk_model=None,
+        trust_remote_code=False,
         disable_update=True,
         disable_pbar=True,
         device=DEVICE,
@@ -207,12 +245,45 @@ ws_whisper_lock = threading.Lock()
 
 class ThreadedWSGIServer(ThreadingMixIn, WSGIServer):
     daemon_threads = True
+    _slots = threading.BoundedSemaphore(8)
+
+    def get_request(self):
+        connection, address = super().get_request()
+        connection.settimeout(10)
+        return connection, address
+
+    def process_request(self, connection, address):
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(connection)
+            return
+        try:
+            super().process_request(connection, address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, connection, address):
+        try:
+            super().process_request_thread(connection, address)
+        finally:
+            self._slots.release()
 
 
 class ThreadedServer(WSGIRefServer):
     def run(self, handler):
         from wsgiref.simple_server import make_server
-        self.server = make_server(self.host, self.port, handler, server_class=ThreadedWSGIServer)
+        if _INHERITED_HTTP_SOCKET is None:
+            self.server = make_server(self.host, self.port, handler, server_class=ThreadedWSGIServer)
+        else:
+            from wsgiref.simple_server import WSGIRequestHandler
+            self.server = ThreadedWSGIServer((self.host, self.port), WSGIRequestHandler, bind_and_activate=False)
+            self.server.socket.close()
+            self.server.socket = _INHERITED_HTTP_SOCKET
+            self.server.server_address = _INHERITED_HTTP_SOCKET.getsockname()
+            self.server.server_name = self.host
+            self.server.server_port = self.port
+            self.server.setup_environ()
+            self.server.set_app(handler)
         self.server.serve_forever()
 
 
@@ -317,27 +388,28 @@ def _resample_to_target(data: np.ndarray, sr: int) -> np.ndarray:
 def decode_audio(raw_bytes: bytes):
     try:
         import soundfile as sf
-        data, sr = sf.read(io.BytesIO(raw_bytes), dtype="float32", always_2d=False)
-        if data.size > 0:
-            if data.ndim > 1:
-                data = data.mean(axis=1).astype(np.float32)
-            return _resample_to_target(data, sr)
+        with sf.SoundFile(io.BytesIO(raw_bytes)) as source:
+            if (source.samplerate < 8000 or source.samplerate > 192000 or
+                    not 1 <= source.channels <= 2 or source.frames <= 0 or
+                    source.frames > source.samplerate * MAX_SESSION_SECONDS):
+                return None
+            data = source.read(dtype="float32", always_2d=True).mean(axis=1)
+            return _resample_to_target(data, source.samplerate)
     except Exception:
         pass
-
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp.write(raw_bytes)
-            tmp_path = tmp.name
-        import whisper as _whisper_util
-        audio = _whisper_util.load_audio(tmp_path)
-        return audio.astype(np.float32)
-    except Exception:
+    # Preserve the legacy non-WAV fallback, but bound decoding time and output.
+    binary = shutil.which("ffmpeg")
+    if not binary:
         return None
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    try:
+        result = subprocess.run([binary, "-nostdin", "-v", "error", "-protocol_whitelist", "pipe", "-i", "pipe:0",
+            "-t", str(MAX_SESSION_SECONDS), "-f", "f32le", "-ac", "1", "-ar", str(TARGET_SR), "pipe:1"],
+            input=raw_bytes, capture_output=True, timeout=15, check=True)
+        if len(result.stdout) > TARGET_SR * MAX_SESSION_SECONDS * 4:
+            return None
+        return np.frombuffer(result.stdout, dtype="<f4").copy()
+    except (subprocess.SubprocessError, OSError):
+        return None
 
 
 def has_speech(audio: np.ndarray) -> bool:
@@ -485,6 +557,64 @@ _warmup()
 # =========================================================
 # 7. HTTP 路由（保留，与 v4 完全一致）
 # =========================================================
+# The desktop installer polls actual model readiness, not merely an open port.
+_SETUP_READY = False
+_SETUP_ERROR = None
+_WS_READY = False
+_SETUP_LOCK = threading.Lock()
+
+
+@route('/health', method='GET')
+def setup_health():
+    response.content_type = 'application/json'
+    return json.dumps({
+        "service": "hermeneus-asr",
+        "ready": _SETUP_READY and _WS_READY,
+        "setup_error": _SETUP_ERROR,
+        "whisper_backend": WHISPER_BACKEND,
+        "chinese_streaming": paraformer_model is not None,
+    })
+
+
+def prepare_speech_models():
+    global _SETUP_READY, _SETUP_ERROR, paraformer_model
+    if not _SETUP_LOCK.acquire(blocking=False):
+        return
+    _SETUP_ERROR = None
+    _SETUP_READY = False
+    try:
+        if paraformer_model is None:
+            from funasr import AutoModel
+            paraformer_model = AutoModel(
+                model="iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online",
+                model_revision="v2.0.4", vad_model=None, punc_model=None,
+                spk_model=None, trust_remote_code=False, disable_update=True, disable_pbar=True,
+                device=DEVICE, ncpu=_THREAD_CAP,
+            )
+        # MLX otherwise downloads lazily on the first real utterance. Run a local
+        # silence probe now, so the setup screen waits for weights and inference.
+        with es_lock:
+            run_whisper(np.zeros(TARGET_SR, dtype=np.float32), "es")
+        _SETUP_READY = True
+        print("✅ 安装检查：中西语语音模型已加载并完成西语推理检查")
+    except Exception as exc:
+        _SETUP_ERROR = str(exc)
+        print(f"❌ 安装检查：语音模型未就绪: {exc}")
+    finally:
+        _SETUP_LOCK.release()
+
+
+@route('/setup/retry', method='POST')
+def retry_speech_setup():
+    # Only a local desktop action may trigger a model retry; no browser-origin
+    # requests or transcript data are accepted by this endpoint.
+    if request.remote_addr not in _LOOPBACK_HOSTS or request.get_header('Origin'):
+        response.status = 403
+        return {"error": "local desktop requests only"}
+    threading.Thread(target=prepare_speech_models, daemon=True).start()
+    return {"status": "preparing"}
+
+
 @route('/inference', method='POST')
 def inference():
     t0 = time.perf_counter()
@@ -549,8 +679,24 @@ def inference():
         lock.release()
 
 
+def secure_http_app(environ, start_response):
+    if not authorized(environ.get('REMOTE_ADDR'), environ.get('HTTP_HOST'),
+                      environ.get('HTTP_ORIGIN'), environ.get('HTTP_AUTHORIZATION'), IPC_TOKEN, HTTP_PORT):
+        start_response('403 Forbidden', [('Content-Type', 'application/json')])
+        return [b'{"error":"unauthorized_local_request"}']
+    if environ.get('REQUEST_METHOD') == 'POST':
+        try:
+            length = int(environ.get('CONTENT_LENGTH') or '-1')
+        except ValueError:
+            length = -1
+        if length < 0 or length > MAX_HTTP_REQUEST_BYTES + 65536:
+            start_response('413 Payload Too Large', [('Content-Type', 'application/json')])
+            return [b'{"error":"invalid_body_length"}']
+    return default_app()(environ, start_response)
+
+
 def _run_bottle_server():
-    run(host='localhost', port=HTTP_PORT, quiet=True, server=ThreadedServer)
+    run(app=secure_http_app, host='127.0.0.1', port=HTTP_PORT, quiet=True, server=ThreadedServer)
 
 
 # =========================================================
@@ -705,7 +851,38 @@ async def maybe_schedule_spanish_preview(websocket, session: ASRSession):
     )
 
 
+_WS_CONNECTION_SLOTS = None
+
+
 async def handle_asr_session(websocket):
+    global _WS_CONNECTION_SLOTS
+    incoming = getattr(websocket, 'request', None)
+    headers = incoming.headers if incoming else websocket.request_headers
+    path = incoming.path if incoming else websocket.path
+    try:
+        valid = path == '/ws/asr' and authorized(websocket.remote_address[0], headers.get('Host'),
+            headers.get('Origin'), headers.get('Authorization'), IPC_TOKEN, WS_PORT)
+    except (ValueError, KeyError, TypeError):
+        valid = False
+    if not valid:
+        await websocket.close(code=1008, reason='unauthorized local request')
+        return
+    if _WS_CONNECTION_SLOTS is None:
+        _WS_CONNECTION_SLOTS = asyncio.BoundedSemaphore(8)
+    try:
+        await asyncio.wait_for(_WS_CONNECTION_SLOTS.acquire(), timeout=0.1)
+    except asyncio.TimeoutError:
+        await websocket.close(code=1013, reason='busy')
+        return
+    try:
+        await asyncio.wait_for(_handle_authorized_session(websocket), timeout=MAX_SESSION_SECONDS + 30)
+    except asyncio.TimeoutError:
+        await websocket.close(code=1008, reason='session time limit')
+    finally:
+        _WS_CONNECTION_SLOTS.release()
+
+
+async def _handle_authorized_session(websocket):
     """Handle one bounded local ASR connection without retaining transcript content."""
     global SESSION_SEMAPHORE, REMOTE_SESSION_SEMAPHORE, LOCAL_SESSION_SEMAPHORE, WHISPER_FINAL_PENDING
     if SESSION_SEMAPHORE is None:
@@ -733,6 +910,9 @@ async def handle_asr_session(websocket):
                     await send_error("invalid_command")
                     continue
 
+                if not isinstance(cmd_obj, dict):
+                    await send_error("invalid_command")
+                    continue
                 cmd = cmd_obj.get("cmd")
                 if cmd == "start":
                     if session is not None:
@@ -808,6 +988,10 @@ async def handle_asr_session(websocket):
     except Exception as e:
         print(f"❌ ASR WebSocket session failed: {type(e).__name__}")
     finally:
+        if session is not None:
+            session.closed = True
+            if session.es_preview_task is not None:
+                session.es_preview_task.cancel()
         if session_slot is not None:
             session_slot.release()
         session = None
@@ -897,16 +1081,20 @@ async def _finalize_session(websocket, session: ASRSession):
 
 
 async def _run_websocket_server():
+    global _WS_READY
     print(f"🚀 [WS] ASR WebSocket 服务启动于 ws://{WS_HOST}:{WS_PORT}/ws/asr")
+    listener = {"sock": _INHERITED_WS_SOCKET} if _INHERITED_WS_SOCKET is not None else {"host": WS_HOST, "port": WS_PORT}
     async with websockets.serve(
         handle_asr_session,
-        WS_HOST,
-        WS_PORT,
+        **listener,
         max_size=MAX_WS_FRAME_BYTES,
         max_queue=8,
+        origins=[None],
+        compression=None,
         ping_interval=20,
         ping_timeout=20,
     ):
+        _WS_READY = True
         await asyncio.Future()  # 永久阻塞，直到进程退出
 
 
@@ -914,6 +1102,7 @@ if __name__ == "__main__":
     # bottle HTTP 服务放到独立线程里跑（它自己是阻塞式 serve_forever），
     # 主线程跑 asyncio 事件循环负责 WebSocket。两者共享同一批模型实例
     # 和线程锁，互不冲突。
+    threading.Thread(target=prepare_speech_models, daemon=True).start()
     http_thread = threading.Thread(target=_run_bottle_server, daemon=True)
     http_thread.start()
     print(f"🚀 [HTTP] 兜底 /inference 服务已启动于 http://localhost:{HTTP_PORT}")

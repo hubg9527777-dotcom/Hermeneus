@@ -1,24 +1,26 @@
 # -*- coding: utf-8 -*-
-"""PyInstaller specification for the Hermeneus offline pyannote diarizer."""
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, collect_submodules
+"""PyInstaller specification for the Hermeneus account-free ONNX diarizer."""
+from PyInstaller.utils.hooks import collect_dynamic_libs, copy_metadata
 
 block_cipher = None
-datas, binaries, hiddenimports = [], [], []
-for package in ["pyannote.audio", "torch", "torchaudio", "torchcodec", "huggingface_hub", "numpy"]:
-    package_datas, package_binaries, package_hiddenimports = collect_all(package)
-    datas += package_datas
-    binaries += package_binaries
-    hiddenimports += package_hiddenimports
-binaries += collect_dynamic_libs("torch")
-hiddenimports += collect_submodules("pyannote")
-hiddenimports += ["torch._C", "torchcodec", "huggingface_hub"]
+# Only the narrow package initializer is imported. Avoid collecting upstream
+# CLI modules and their unused ASR/TTS/demo dependency graphs.
+datas = copy_metadata("sherpa-onnx")
+binaries = collect_dynamic_libs("sherpa_onnx")
+hiddenimports = ["sherpa_onnx.lib._sherpa_onnx"]
 
 analysis = Analysis(
     ["offline_diarization_worker.py"], pathex=[], binaries=binaries, datas=datas,
     hiddenimports=hiddenimports, hookspath=[], hooksconfig={}, runtime_hooks=[],
-    excludes=["matplotlib", "tkinter", "IPython", "notebook", "jupyter", "pytest", "sphinx"],
+    excludes=["matplotlib", "tkinter", "IPython", "notebook", "jupyter", "pytest", "sphinx", "torch", "torchaudio", "torchcodec", "pyannote", "huggingface_hub", "librosa", "numba", "llvmlite"],
     noarchive=False, cipher=block_cipher,
 )
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(SPECPATH).parent / 'scripts'))
+from vendor_sndfile import replace_decoder
+replace_decoder(analysis)
+
 pyz = PYZ(analysis.pure, analysis.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz, analysis.scripts, analysis.binaries, analysis.zipfiles, analysis.datas, [],

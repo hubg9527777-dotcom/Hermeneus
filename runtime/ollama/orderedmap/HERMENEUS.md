@@ -1,0 +1,1 @@
+Local compatibility fork of github.com/wk8/go-ordered-map/v2 v2.1.8. Only YAML imports and required YAML version change to go.yaml.in/yaml/v3 v3.0.4; upstream tests and LICENSE are retained. Remove the fork after upstream adopts maintained YAML. Original module checksum: h1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/fJgbpc= (verify against parent go.sum).

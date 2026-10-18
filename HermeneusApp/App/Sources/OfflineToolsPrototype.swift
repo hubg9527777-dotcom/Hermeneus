@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// 离线录音、文件转译与说话人标签工作台。
 ///
-/// 离线工具的控制器负责加密卷、录音与本地文件转译状态。
+/// 离线工具的控制器负责存储目录、录音与本地文件转译状态。
 /// 它只验证用户选择的本地存储目录、创建一个不含内容数据的任务清单，
 /// 并让用户体验未来的录音/文件转译/说话人标签工作流。
 @MainActor
@@ -31,7 +31,7 @@ final class OfflineToolsPrototypeController: ObservableObject {
         var summary: String {
             switch self {
             case .notConfigured:
-                return "尚未选择加密卷目录"
+                return "尚未选择存储目录"
             case .ready(let path):
                 return "已验证可写：\(path)"
             case .unavailable(let message):
@@ -54,14 +54,14 @@ final class OfflineToolsPrototypeController: ObservableObject {
             switch self {
             case .idle: return "等待设置"
             case .recordingReady: return "录音体验已就绪"
-            case .jobCreated: return "示例任务已写入加密卷"
+            case .jobCreated: return "示例任务已写入所选目录"
             }
         }
 
         var detail: String {
             switch self {
             case .idle:
-                return "选择加密卷目录后，才可体验离线工具流程。"
+                return "选择存储目录后，才可体验离线工具流程。"
             case .recordingReady:
                 return "这是安全体验状态：不会打开麦克风、不会捕获系统音频。"
             case .jobCreated:
@@ -104,7 +104,7 @@ final class OfflineToolsPrototypeController: ObservableObject {
 
     func chooseStorageLocation() {
         let panel = NSOpenPanel()
-        panel.title = "选择加密卷内的 Hermeneus 数据目录"
+        panel.title = "选择 Hermeneus 数据目录（建议使用加密卷）"
         panel.message = "录音、转译检查点、字幕和导出文件都将保存在此目录。"
         panel.prompt = "使用此目录"
         panel.canChooseFiles = false
@@ -185,7 +185,7 @@ final class OfflineToolsPrototypeController: ObservableObject {
         guard url.isFileURL,
               !url.hasDirectoryPath,
               supportedExtensions.contains(fileExtension),
-              FileManager.default.fileExists(atPath: url.path)
+              (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
         else {
             message = "仅支持拖入或选择本机已有的 MP3、M4A、WAV、MP4 文件；不接受链接、网页音频或文件夹。"
             return false
@@ -200,7 +200,7 @@ final class OfflineToolsPrototypeController: ObservableObject {
 
     func prepareRecordingExperience() {
         guard storageState.isReady else {
-            message = "请先选择并验证加密卷内的数据目录。"
+            message = "请先选择存储目录并确认可写。"
             return
         }
         selectedMode = .recording
@@ -210,7 +210,7 @@ final class OfflineToolsPrototypeController: ObservableObject {
 
     func createPreviewJob() {
         guard let root = storageURL, storageState.isReady else {
-            message = "请先选择并验证加密卷内的数据目录。"
+            message = "请先选择存储目录并确认可写。"
             return
         }
         if selectedMode == .file, selectedInputName == nil {
@@ -239,15 +239,15 @@ final class OfflineToolsPrototypeController: ObservableObject {
         ]
 
         do {
-            try FileManager.default.createDirectory(at: jobURL, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: jobURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
             try data.write(to: manifestURL, options: [.atomic])
             previewState = .jobCreated
             lastJobLocation = manifestURL.path
             message = "已在您选择的目录创建示例任务清单，不含任何音频、原文或译文。"
         } catch {
-            storageState = .unavailable(message: "无法写入加密卷：\(error.localizedDescription)")
-            message = "未创建任务。请检查加密卷是否仍已挂载且可写。"
+            storageState = .unavailable(message: "无法写入所选目录：\(error.localizedDescription)")
+            message = "未创建任务。请检查存储目录是否仍已挂载且可写。"
         }
     }
 
@@ -274,12 +274,12 @@ final class OfflineToolsPrototypeController: ObservableObject {
                 bookmarkDataIsStale: &isStale
             )
             if isStale {
-                storageState = .unavailable(message: "加密卷目录授权已失效，请重新选择目录。")
+                storageState = .unavailable(message: "存储目录授权已失效，请重新选择目录。")
                 return
             }
             configureStorage(url, persistBookmark: false)
         } catch {
-            storageState = .unavailable(message: "无法恢复加密卷目录，请重新选择。")
+            storageState = .unavailable(message: "无法恢复存储目录，请重新选择。")
         }
     }
 
@@ -310,7 +310,7 @@ final class OfflineToolsPrototypeController: ObservableObject {
             }
             storageURL = standardized
             storageState = .ready(path: standardized.path)
-            message = "加密卷已验证。"
+            message = "存储目录可写。应用未验证磁盘加密，请确认敏感录音保存在已加密的卷上。"
         } catch {
             storageURL = nil
             storageState = .unavailable(message: "目录不可用：\(error.localizedDescription)")
@@ -395,7 +395,7 @@ struct OfflineToolsPrototypeView: View {
             HStack(spacing: 5) {
                 Image(systemName: controller.storageState.isReady ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                     .foregroundStyle(controller.storageState.isReady ? .green : .orange)
-                Text(controller.storageState.isReady ? "加密卷已就绪" : "需要加密卷")
+                Text(controller.storageState.isReady ? "存储目录可写" : "请选择存储目录")
                     .foregroundStyle(.primary)
             }
             .font(.system(size: 11, weight: .medium))
@@ -414,7 +414,7 @@ struct OfflineToolsPrototypeView: View {
             Image(systemName: "lock.fill")
                 .foregroundStyle(controller.storageState.isReady ? .green : .orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text("加密存储")
+                Text("存储位置（建议选择加密卷）")
                     .font(.system(size: 12, weight: .semibold))
                 Text(controller.storageState.summary)
                     .font(.system(size: 11))
@@ -509,7 +509,7 @@ struct OfflineToolsPrototypeView: View {
                         Text(controller.selectedInputName ?? "将 MP3、M4A、WAV 或 MP4 拖到这里")
                             .font(.system(size: 12, weight: controller.selectedInputURL == nil ? .regular : .medium))
                             .lineLimit(1)
-                        Text(controller.selectedInputURL == nil ? "仅接收本机文件；拖入只选中文件，需由您确认开始转译。" : "已选择；转写、译文和字幕只写入已验证的加密卷。")
+                        Text(controller.selectedInputURL == nil ? "仅接收本机文件；拖入只选中文件，需由您确认开始转译。" : "已选择；转写、译文和字幕只写入所选目录。")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                     }
@@ -553,7 +553,7 @@ struct OfflineToolsPrototypeView: View {
                         }
                         .font(.system(size: 11, weight: .semibold))
                     } else {
-                        Label("普通单轨混音：匿名分为说话人 A / 说话人 B", systemImage: "person.2.fill")
+                        Label("离线分离说话人 A / B · 无需账号", systemImage: "person.2.fill")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.primary)
                     }
@@ -669,16 +669,24 @@ struct OfflineToolsPrototypeView: View {
             return
         }
         guard let input = controller.selectedInputURL, let root = controller.verifiedStorageURL else {
-            controller.setMessage("请先选择文件并验证加密卷目录。")
+            controller.setMessage("请先选择文件与存储目录（建议使用加密卷）。")
             return
         }
         do {
             let dualTracks = controller.speakerMode == .dualSpeaker ? controller.selectedDualTracks : nil
             let useAnonymousDiarization = controller.speakerMode == .dualSpeaker && dualTracks == nil
+            if useAnonymousDiarization {
+                let confirmation = NSAlert()
+                confirmation.messageText = "启用离线说话人分离？"
+                confirmation.informativeText = "首次使用会从官方公开来源下载约 47 MB 模型，随后可断网使用。无需注册账号，录音不会上传。模型采用 MIT / Apache 2.0 许可，详情见应用随附说明。"
+                confirmation.addButton(withTitle: "确认并开始")
+                confirmation.addButton(withTitle: "取消")
+                guard confirmation.runModal() == .alertFirstButtonReturn else { return }
+            }
             try batchRunner.start(
                 inputURL: input,
                 secureRoot: root,
-                modelName: "qwen2.5:3b",
+                modelName: UserDefaults.standard.string(forKey: "Hermeneus.OllamaModelName") ?? "qwen2.5:3b",
                 diarization: useAnonymousDiarization,
                 dualTracks: dualTracks
             )
@@ -718,7 +726,7 @@ struct OfflineToolsPrototypeView: View {
                 try orchestrator.startMeetingRecording(in: root)
                 controller.setMessage("已开始会议双轨录音；同传与对方优先策略保持运行。")
             } else {
-                controller.setMessage("请先选择并验证加密卷目录。")
+                controller.setMessage("请先选择存储目录并确认可写。")
             }
         } catch {
             controller.setMessage("会议录音未能开始或保存：\(error.localizedDescription)")
@@ -756,7 +764,7 @@ struct OfflineToolsPrototypeView: View {
                 try await recorder.start(in: root)
                 controller.setMessage("已开始双轨录音。请在状态栏确认麦克风和系统音频权限。")
             } else {
-                controller.setMessage("请先选择并验证加密卷目录。")
+                controller.setMessage("请先选择存储目录并确认可写。")
             }
         } catch {
             controller.setMessage("录音未能开始或保存：\(error.localizedDescription)")
@@ -771,7 +779,7 @@ struct OfflineToolsPrototypeView: View {
         VStack(alignment: .leading, spacing: 6) {
             Label("安全与功能边界", systemImage: "checkmark.shield")
                 .font(.headline)
-            Text("已实现：目录选择、书签保存、可写性测试、会议同传期间的旁路双轨录音、独立离线双轨录音、MP3/MP4 批量转写、Ollama 翻译与字幕导出。批量转译仍与同传互斥；失败任务保留加密卷内检查点。")
+            Text("已实现：目录选择、书签保存、可写性测试、会议同传期间的旁路双轨录音、独立离线双轨录音、MP3/MP4 批量转写、Ollama 翻译与字幕导出。批量转译仍与同传互斥；失败任务在所选目录保留检查点；应用未验证磁盘加密。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -782,7 +790,7 @@ struct OfflineToolsPrototypeView: View {
     }
 
     private var footer: some View {
-        Label("仅保存在已验证的加密卷", systemImage: "lock.fill")
+        Label("仅保存在所选目录；应用未验证磁盘加密", systemImage: "lock.fill")
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(.secondary)
             .padding(.top, 2)

@@ -431,7 +431,7 @@ private struct LocalSubtitlePanel: View {
         HStack {
             HStack(spacing: 6) {
                 Image(systemName: "mic.fill")
-                Text("我说 (麦克风 → BlackHole)")
+                Text("我说（麦克风 → \(orchestrator.speechOutputLabel)）")
                     .font(.system(size: 13, weight: .bold))
             }
             .foregroundColor(.yellow)

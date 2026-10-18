@@ -1,0 +1,14 @@
+{
+  "revision": "1.2.2-hermeneus.2",
+  "source_sha256": "ffe12ef8add3eaca876f04087734e6e8e029350082f3251f565fa9da55b52121",
+  "patches": {
+    "unaligned-1.2.2.patch": "e2c8542371f59afdaf4bf0eadd84b2bdaa43c00d98217adb3a36481de305f5b4",
+    "cue-label.patch": "c9e64e8d6bd44f368c3d8e05aa1d183e596f834b12d09c0b14e181a99dbd06cc",
+    "ima-counts-1.2.2.patch": "5f03a102d126bb19e23f149065ef41c49c70741bcf328e3d27048e3592fa61e4",
+    "ircam-bounds-1.2.2.patch": "4ddbd7eec8f2f8213eb7dc6eecb6a4e3930977cf903c95a46a9e4cc51f6cb06f"
+  },
+  "library_sha256": "9b9ff7f1d0526a0161106f9f3b90867094737c2e3bf5d23dffd31407eda70e8b",
+  "sanitized": false,
+  "external_codecs": false,
+  "recipe_sha256": "68bf9eb5c10c21cde6ba9736e1cb39c8307ebb1f79bdebbdbb971956de027aaa"
+}

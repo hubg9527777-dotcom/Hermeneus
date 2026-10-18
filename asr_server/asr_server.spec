@@ -1,25 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""
-asr_server.spec —— Hermeneus ASR 引擎 PyInstaller onefile 打包规格
-
-崩溃根因（已在 CI 日志中复现确认）：
-    AttributeError: module 'pkg_resources' has no attribute 'NullProvider'
-    File "pyi_rth_pkgres.py", line 85, in _pyi_rthook
-
-这是 setuptools>=70.0.0 之后的已知生态问题（pypa/setuptools#4374,
-pyinstaller/pyinstaller#8554）：setuptools 70 重构了 pkg_resources，砍掉了
-NullProvider / pkg_resources.extern 等旧 API，而 PyInstaller 内置的运行时钩子
-pyi_rth_pkgres.py 仍假设这些 API 存在，于是二进制在真正执行 server.py 之前，
-就在钩子阶段直接崩溃。
-
-真正的修复点在【构建环境】：将 setuptools 锁定在 <70（推荐 69.5.1，是社区验证
-过的最后一个可用版本），而不是在这个 spec 文件里"猜"。
-本文件做的是双重保险：
-    1. 显式声明 pkg_resources 相关子模块为 hiddenimports，避免任何一次 CI 缓存
-       残留或依赖漂移导致收集不全；
-    2. 精准 collect_all 重型依赖，避免遗漏 .so / 模型配置文件；
-    3. 排除测试 / 文档 / 可视化等冗余子模块，控制体积、减少无关崩溃面。
-"""
+"""ASR one-file bundle using current importlib metadata and patched build tools."""
 
 from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, collect_submodules
 
@@ -55,16 +35,9 @@ for pkg in HEAVY_PACKAGES:
 # ctranslate2 的核心推理库是动态链接的 .dylib，collect_all 有时抓不全，显式补充
 binaries += collect_dynamic_libs("ctranslate2")
 
-# --------------------------------------------------------------------------
-# 2. pkg_resources：显式声明命名空间子模块
-#    （防止运行时钩子在解析 entry_points / distribution 元数据时因懒加载
-#     缺失而报错；真正杜绝 NullProvider 崩溃仍以锁定 setuptools<70 为准）
-# --------------------------------------------------------------------------
-hiddenimports += collect_submodules("pkg_resources")
+# Package metadata is collected by collect_all; pkg_resources was removed in
+# setuptools 82+. Do not resurrect the obsolete shim or vendor insecure versions.
 hiddenimports += [
-    "pkg_resources.extern",
-    "pkg_resources._vendor",
-    "pkg_resources._vendor.packaging",
     "funasr.models",
     "funasr.utils",
     "torch._C",
@@ -87,7 +60,6 @@ excludes = [
     "pytest",
     "sphinx",
     "setuptools.tests",
-    "pkg_resources.tests",
 ]
 
 a = Analysis(
@@ -103,6 +75,12 @@ a = Analysis(
     noarchive=False,
     cipher=block_cipher,
 )
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(SPECPATH).parent / 'scripts'))
+from vendor_sndfile import replace_decoder
+replace_decoder(a)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

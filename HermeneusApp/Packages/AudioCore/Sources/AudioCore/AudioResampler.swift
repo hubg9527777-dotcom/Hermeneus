@@ -21,11 +21,13 @@ public struct AudioResampler {
         inputSampleRate: Int,
         targetSampleRate: Int
     ) -> [Float] {
-        guard !samples.isEmpty else { return [] }
+        guard !samples.isEmpty, inputSampleRate > 0, targetSampleRate > 0 else { return [] }
         guard inputSampleRate != targetSampleRate else { return samples }
 
         let ratio = Double(targetSampleRate) / Double(inputSampleRate)
-        let outputCount = max(1, Int(Double(samples.count) * ratio))
+        let projectedCount = Double(samples.count) * ratio
+        guard projectedCount.isFinite, projectedCount < Double(Int.max) else { return [] }
+        let outputCount = max(1, Int(projectedCount))
 
         var output = [Float](repeating: 0, count: outputCount)
         let lastIndex = samples.count - 1
@@ -53,7 +55,7 @@ public struct AudioResampler {
     public static func floatToPCM16Data(_ samples: [Float]) -> Data {
         var data = Data(capacity: samples.count * 2)
         for sample in samples {
-            let clamped = max(-1.0, min(1.0, sample))
+            let clamped = sample.isFinite ? max(-1.0, min(1.0, sample)) : 0
             let intValue = Int16(clamped * 32767.0)
             withUnsafeBytes(of: intValue.littleEndian) { bytes in
                 data.append(contentsOf: bytes)

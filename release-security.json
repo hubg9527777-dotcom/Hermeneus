@@ -1,0 +1,30 @@
+{
+  "release_approved": true,
+  "review_date": "2026-10-17",
+  "reviewed_ollama_version": "0.40.6",
+  "reviewed_ollama_sha256": "b2b55434865a668decb494110d7fd970eed3ecc8837be2872f672ccbb95df974",
+  "blockers": [],
+  "reviewed_security_revision": "0.40.6-hermeneus.6",
+  "qa_only": false,
+  "accepted_distribution_limits": [
+    "No Developer ID / notarization, explicitly accepted by developer."
+  ],
+  "reviewed_diarization_version": "1.13.8+hermeneus.1",
+  "reviewed_diarization_patch_sha256": "833d73f98b8d8c652cab7c1df9d5cc7d1821e2f104eb34172ba63eb6578a5c5d",
+  "acceptance_scope": "Apple M4 local release acceptance; build 2 synthetic offline workflow and mounted image verified. Second-machine and real conference acceptance not performed.",
+  "accepted_residual_risks": [
+    "No second-machine macOS 14/M1 or remote conference acceptance."
+  ],
+  "candidate_security_revision": "0.40.6-hermeneus.6",
+  "candidate_decoder_revision": "1.2.2-hermeneus.2",
+  "decoder_patch_status": "Local .2 backports IMA frame-count fixes and adapts unmerged IRCAM hardening with a corrected float boundary; 143 upstream sanitizer tests and crafted regressions pass. No application exploit or release-wide clearance claimed. Packaged .2 synthetic offline acceptance, signatures and mounted-image identity verification pass.",
+  "security_audit_date": "2026-10-17",
+  "security_audit_report": "docs/SECURITY_AUDIT_2026-10-17.md",
+  "decoder_followup_report": "docs/SECURITY_AUDIT_2026-10-17.md",
+  "reviewed_decoder_revision": "1.2.2-hermeneus.2",
+  "reviewed_decoder_recipe_sha256": "68bf9eb5c10c21cde6ba9736e1cb39c8307ebb1f79bdebbdbb971956de027aaa",
+  "reviewed_ffmpeg_version": "8.1.2",
+  "reviewed_ffmpeg_source_sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+  "reviewed_source_sha256": "ede7b5faa0c6c7650de1c3be73cee63ca17ba2b0b7bb398b5a1059bb9b3d22b2",
+  "release_execution": "Developer explicitly requested v1.0.0 reissue; prepared for their manual terminal command. No GitHub publication performed by this task."
+}

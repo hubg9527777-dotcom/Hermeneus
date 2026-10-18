@@ -163,7 +163,9 @@ public final class SCKAudioCapturer: NSObject, @unchecked Sendable, SCStreamOutp
         pcmBuffer.frameLength = AVAudioFrameCount(frameCount)
 
         let dataLength = CMBlockBufferGetDataLength(blockBuffer)
-        guard let destinationPointer = pcmBuffer.mutableAudioBufferList.pointee.mBuffers.mData else {
+        guard dataLength <= Int(pcmBuffer.mutableAudioBufferList.pointee.mBuffers.mDataByteSize),
+              pcmBuffer.mutableAudioBufferList.pointee.mNumberBuffers == 1,
+              let destinationPointer = pcmBuffer.mutableAudioBufferList.pointee.mBuffers.mData else {
             return nil
         }
 

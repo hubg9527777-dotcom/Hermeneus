@@ -1,0 +1,2321 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:2b4a0bc2-2da4-4040-a417-658b9c57b15c",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-10-18T02:34:30Z",
+    "component": {
+      "type": "application",
+      "name": "Hermeneus",
+      "version": "1.0.0",
+      "properties": [
+        {
+          "name": "hermeneus:build",
+          "value": "2"
+        },
+        {
+          "name": "hermeneus:ollama-security-revision",
+          "value": "0.40.6-hermeneus.6"
+        }
+      ]
+    },
+    "properties": [
+      {
+        "name": "hermeneus:scope",
+        "value": "Resolved Python build environment and Go modules, plus manually identified native components. Not a complete transitive native build attestation."
+      },
+      {
+        "name": "hermeneus:custom-wheel",
+        "value": "sherpa-onnx 1.13.8+hermeneus.1 is a pinned source build; pip-audit does not cover this local revision."
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "aiohappyeyeballs",
+      "version": "2.7.1",
+      "purl": "pkg:pypi/aiohappyeyeballs@2.7.1",
+      "bom-ref": "pkg:pypi/aiohappyeyeballs@2.7.1"
+    },
+    {
+      "type": "library",
+      "name": "aiohttp",
+      "version": "3.14.5",
+      "purl": "pkg:pypi/aiohttp@3.14.5",
+      "bom-ref": "pkg:pypi/aiohttp@3.14.5"
+    },
+    {
+      "type": "library",
+      "name": "aiosignal",
+      "version": "1.4.0",
+      "purl": "pkg:pypi/aiosignal@1.4.0",
+      "bom-ref": "pkg:pypi/aiosignal@1.4.0"
+    },
+    {
+      "type": "library",
+      "name": "alembic",
+      "version": "1.20.0",
+      "purl": "pkg:pypi/alembic@1.20.0",
+      "bom-ref": "pkg:pypi/alembic@1.20.0"
+    },
+    {
+      "type": "library",
+      "name": "aliyun-python-sdk-core",
+      "version": "2.16.1",
+      "purl": "pkg:pypi/aliyun-python-sdk-core@2.16.1",
+      "bom-ref": "pkg:pypi/aliyun-python-sdk-core@2.16.1"
+    },
+    {
+      "type": "library",
+      "name": "aliyun-python-sdk-kms",
+      "version": "2.16.5",
+      "purl": "pkg:pypi/aliyun-python-sdk-kms@2.16.5",
+      "bom-ref": "pkg:pypi/aliyun-python-sdk-kms@2.16.5"
+    },
+    {
+      "type": "library",
+      "name": "altgraph",
+      "version": "0.17.5",
+      "purl": "pkg:pypi/altgraph@0.17.5",
+      "bom-ref": "pkg:pypi/altgraph@0.17.5"
+    },
+    {
+      "type": "library",
+      "name": "annotated-doc",
+      "version": "0.0.5",
+      "purl": "pkg:pypi/annotated-doc@0.0.5",
+      "bom-ref": "pkg:pypi/annotated-doc@0.0.5"
+    },
+    {
+      "type": "library",
+      "name": "antlr4-python3-runtime",
+      "version": "4.9.3",
+      "purl": "pkg:pypi/antlr4-python3-runtime@4.9.3",
+      "bom-ref": "pkg:pypi/antlr4-python3-runtime@4.9.3"
+    },
+    {
+      "type": "library",
+      "name": "anyio",
+      "version": "4.15.1",
+      "purl": "pkg:pypi/anyio@4.15.1",
+      "bom-ref": "pkg:pypi/anyio@4.15.1"
+    },
+    {
+      "type": "library",
+      "name": "asteroid-filterbanks",
+      "version": "0.4.0",
+      "purl": "pkg:pypi/asteroid-filterbanks@0.4.0",
+      "bom-ref": "pkg:pypi/asteroid-filterbanks@0.4.0"
+    },
+    {
+      "type": "library",
+      "name": "attrs",
+      "version": "26.1.0",
+      "purl": "pkg:pypi/attrs@26.1.0",
+      "bom-ref": "pkg:pypi/attrs@26.1.0"
+    },
+    {
+      "type": "library",
+      "name": "audioread",
+      "version": "3.1.0",
+      "purl": "pkg:pypi/audioread@3.1.0",
+      "bom-ref": "pkg:pypi/audioread@3.1.0"
+    },
+    {
+      "type": "library",
+      "name": "av",
+      "version": "18.1.0",
+      "purl": "pkg:pypi/av@18.1.0",
+      "bom-ref": "pkg:pypi/av@18.1.0"
+    },
+    {
+      "type": "library",
+      "name": "boolean.py",
+      "version": "5.0",
+      "purl": "pkg:pypi/boolean.py@5.0",
+      "bom-ref": "pkg:pypi/boolean.py@5.0"
+    },
+    {
+      "type": "library",
+      "name": "bottle",
+      "version": "0.13.4",
+      "purl": "pkg:pypi/bottle@0.13.4",
+      "bom-ref": "pkg:pypi/bottle@0.13.4"
+    },
+    {
+      "type": "library",
+      "name": "CacheControl",
+      "version": "0.14.4",
+      "purl": "pkg:pypi/cachecontrol@0.14.4",
+      "bom-ref": "pkg:pypi/cachecontrol@0.14.4"
+    },
+    {
+      "type": "library",
+      "name": "certifi",
+      "version": "2026.7.22",
+      "purl": "pkg:pypi/certifi@2026.7.22",
+      "bom-ref": "pkg:pypi/certifi@2026.7.22"
+    },
+    {
+      "type": "library",
+      "name": "cffi",
+      "version": "2.1.1",
+      "purl": "pkg:pypi/cffi@2.1.1",
+      "bom-ref": "pkg:pypi/cffi@2.1.1"
+    },
+    {
+      "type": "library",
+      "name": "charset-normalizer",
+      "version": "3.5.2",
+      "purl": "pkg:pypi/charset-normalizer@3.5.2",
+      "bom-ref": "pkg:pypi/charset-normalizer@3.5.2"
+    },
+    {
+      "type": "library",
+      "name": "click",
+      "version": "8.5.0",
+      "purl": "pkg:pypi/click@8.5.0",
+      "bom-ref": "pkg:pypi/click@8.5.0"
+    },
+    {
+      "type": "library",
+      "name": "cloudpickle",
+      "version": "3.1.2",
+      "purl": "pkg:pypi/cloudpickle@3.1.2",
+      "bom-ref": "pkg:pypi/cloudpickle@3.1.2"
+    },
+    {
+      "type": "library",
+      "name": "colorlog",
+      "version": "6.12.0",
+      "purl": "pkg:pypi/colorlog@6.12.0",
+      "bom-ref": "pkg:pypi/colorlog@6.12.0"
+    },
+    {
+      "type": "library",
+      "name": "contourpy",
+      "version": "1.3.3",
+      "purl": "pkg:pypi/contourpy@1.3.3",
+      "bom-ref": "pkg:pypi/contourpy@1.3.3"
+    },
+    {
+      "type": "library",
+      "name": "crcmod",
+      "version": "1.7",
+      "purl": "pkg:pypi/crcmod@1.7",
+      "bom-ref": "pkg:pypi/crcmod@1.7"
+    },
+    {
+      "type": "library",
+      "name": "cryptography",
+      "version": "50.0.2",
+      "purl": "pkg:pypi/cryptography@50.0.2",
+      "bom-ref": "pkg:pypi/cryptography@50.0.2"
+    },
+    {
+      "type": "library",
+      "name": "ctranslate2",
+      "version": "4.8.3",
+      "purl": "pkg:pypi/ctranslate2@4.8.3",
+      "bom-ref": "pkg:pypi/ctranslate2@4.8.3"
+    },
+    {
+      "type": "library",
+      "name": "cycler",
+      "version": "0.12.1",
+      "purl": "pkg:pypi/cycler@0.12.1",
+      "bom-ref": "pkg:pypi/cycler@0.12.1"
+    },
+    {
+      "type": "library",
+      "name": "cyclonedx-python-lib",
+      "version": "11.12.0",
+      "purl": "pkg:pypi/cyclonedx-python-lib@11.12.0",
+      "bom-ref": "pkg:pypi/cyclonedx-python-lib@11.12.0"
+    },
+    {
+      "type": "library",
+      "name": "decorator",
+      "version": "5.3.1",
+      "purl": "pkg:pypi/decorator@5.3.1",
+      "bom-ref": "pkg:pypi/decorator@5.3.1"
+    },
+    {
+      "type": "library",
+      "name": "defusedxml",
+      "version": "0.7.1",
+      "purl": "pkg:pypi/defusedxml@0.7.1",
+      "bom-ref": "pkg:pypi/defusedxml@0.7.1"
+    },
+    {
+      "type": "library",
+      "name": "einops",
+      "version": "0.8.2",
+      "purl": "pkg:pypi/einops@0.8.2",
+      "bom-ref": "pkg:pypi/einops@0.8.2"
+    },
+    {
+      "type": "library",
+      "name": "faster-whisper",
+      "version": "1.2.1",
+      "purl": "pkg:pypi/faster-whisper@1.2.1",
+      "bom-ref": "pkg:pypi/faster-whisper@1.2.1"
+    },
+    {
+      "type": "library",
+      "name": "filelock",
+      "version": "4.2.1",
+      "purl": "pkg:pypi/filelock@4.2.1",
+      "bom-ref": "pkg:pypi/filelock@4.2.1"
+    },
+    {
+      "type": "library",
+      "name": "flatbuffers",
+      "version": "25.12.19",
+      "purl": "pkg:pypi/flatbuffers@25.12.19",
+      "bom-ref": "pkg:pypi/flatbuffers@25.12.19"
+    },
+    {
+      "type": "library",
+      "name": "fonttools",
+      "version": "4.67.0",
+      "purl": "pkg:pypi/fonttools@4.67.0",
+      "bom-ref": "pkg:pypi/fonttools@4.67.0"
+    },
+    {
+      "type": "library",
+      "name": "frozenlist",
+      "version": "1.8.0",
+      "purl": "pkg:pypi/frozenlist@1.8.0",
+      "bom-ref": "pkg:pypi/frozenlist@1.8.0"
+    },
+    {
+      "type": "library",
+      "name": "fsspec",
+      "version": "2026.9.0",
+      "purl": "pkg:pypi/fsspec@2026.9.0",
+      "bom-ref": "pkg:pypi/fsspec@2026.9.0"
+    },
+    {
+      "type": "library",
+      "name": "funasr",
+      "version": "1.4.16",
+      "purl": "pkg:pypi/funasr@1.4.16",
+      "bom-ref": "pkg:pypi/funasr@1.4.16"
+    },
+    {
+      "type": "library",
+      "name": "googleapis-common-protos",
+      "version": "1.75.5",
+      "purl": "pkg:pypi/googleapis-common-protos@1.75.5",
+      "bom-ref": "pkg:pypi/googleapis-common-protos@1.75.5"
+    },
+    {
+      "type": "library",
+      "name": "grpcio",
+      "version": "1.84.0",
+      "purl": "pkg:pypi/grpcio@1.84.0",
+      "bom-ref": "pkg:pypi/grpcio@1.84.0"
+    },
+    {
+      "type": "library",
+      "name": "h11",
+      "version": "0.16.0",
+      "purl": "pkg:pypi/h11@0.16.0",
+      "bom-ref": "pkg:pypi/h11@0.16.0"
+    },
+    {
+      "type": "library",
+      "name": "hf-xet",
+      "version": "1.7.0",
+      "purl": "pkg:pypi/hf-xet@1.7.0",
+      "bom-ref": "pkg:pypi/hf-xet@1.7.0"
+    },
+    {
+      "type": "library",
+      "name": "httpcore2",
+      "version": "2.13.1",
+      "purl": "pkg:pypi/httpcore2@2.13.1",
+      "bom-ref": "pkg:pypi/httpcore2@2.13.1"
+    },
+    {
+      "type": "library",
+      "name": "httpx2",
+      "version": "2.13.1",
+      "purl": "pkg:pypi/httpx2@2.13.1",
+      "bom-ref": "pkg:pypi/httpx2@2.13.1"
+    },
+    {
+      "type": "library",
+      "name": "huggingface_hub",
+      "version": "2.2.0",
+      "purl": "pkg:pypi/huggingface-hub@2.2.0",
+      "bom-ref": "pkg:pypi/huggingface-hub@2.2.0"
+    },
+    {
+      "type": "library",
+      "name": "hydra-core",
+      "version": "1.3.7",
+      "purl": "pkg:pypi/hydra-core@1.3.7",
+      "bom-ref": "pkg:pypi/hydra-core@1.3.7"
+    },
+    {
+      "type": "library",
+      "name": "idna",
+      "version": "3.20",
+      "purl": "pkg:pypi/idna@3.20",
+      "bom-ref": "pkg:pypi/idna@3.20"
+    },
+    {
+      "type": "library",
+      "name": "jaconv",
+      "version": "0.5.0",
+      "purl": "pkg:pypi/jaconv@0.5.0",
+      "bom-ref": "pkg:pypi/jaconv@0.5.0"
+    },
+    {
+      "type": "library",
+      "name": "jamo",
+      "version": "0.4.1",
+      "purl": "pkg:pypi/jamo@0.4.1",
+      "bom-ref": "pkg:pypi/jamo@0.4.1"
+    },
+    {
+      "type": "library",
+      "name": "jieba",
+      "version": "0.42.1",
+      "purl": "pkg:pypi/jieba@0.42.1",
+      "bom-ref": "pkg:pypi/jieba@0.42.1"
+    },
+    {
+      "type": "library",
+      "name": "Jinja2",
+      "version": "3.1.6",
+      "purl": "pkg:pypi/jinja2@3.1.6",
+      "bom-ref": "pkg:pypi/jinja2@3.1.6"
+    },
+    {
+      "type": "library",
+      "name": "jmespath",
+      "version": "1.1.0",
+      "purl": "pkg:pypi/jmespath@1.1.0",
+      "bom-ref": "pkg:pypi/jmespath@1.1.0"
+    },
+    {
+      "type": "library",
+      "name": "joblib",
+      "version": "1.6.0",
+      "purl": "pkg:pypi/joblib@1.6.0",
+      "bom-ref": "pkg:pypi/joblib@1.6.0"
+    },
+    {
+      "type": "library",
+      "name": "julius",
+      "version": "0.2.8",
+      "purl": "pkg:pypi/julius@0.2.8",
+      "bom-ref": "pkg:pypi/julius@0.2.8"
+    },
+    {
+      "type": "library",
+      "name": "kaldiio",
+      "version": "2.18.1",
+      "purl": "pkg:pypi/kaldiio@2.18.1",
+      "bom-ref": "pkg:pypi/kaldiio@2.18.1"
+    },
+    {
+      "type": "library",
+      "name": "kiwisolver",
+      "version": "1.5.1",
+      "purl": "pkg:pypi/kiwisolver@1.5.1",
+      "bom-ref": "pkg:pypi/kiwisolver@1.5.1"
+    },
+    {
+      "type": "library",
+      "name": "lazy-loader",
+      "version": "0.6",
+      "purl": "pkg:pypi/lazy-loader@0.6",
+      "bom-ref": "pkg:pypi/lazy-loader@0.6"
+    },
+    {
+      "type": "library",
+      "name": "librosa",
+      "version": "0.11.0",
+      "purl": "pkg:pypi/librosa@0.11.0",
+      "bom-ref": "pkg:pypi/librosa@0.11.0"
+    },
+    {
+      "type": "library",
+      "name": "license-expression",
+      "version": "30.4.4",
+      "purl": "pkg:pypi/license-expression@30.4.4",
+      "bom-ref": "pkg:pypi/license-expression@30.4.4"
+    },
+    {
+      "type": "library",
+      "name": "lightning",
+      "version": "2.6.6",
+      "purl": "pkg:pypi/lightning@2.6.6",
+      "bom-ref": "pkg:pypi/lightning@2.6.6"
+    },
+    {
+      "type": "library",
+      "name": "lightning-utilities",
+      "version": "0.15.3",
+      "purl": "pkg:pypi/lightning-utilities@0.15.3",
+      "bom-ref": "pkg:pypi/lightning-utilities@0.15.3"
+    },
+    {
+      "type": "library",
+      "name": "llvmlite",
+      "version": "0.50.0",
+      "purl": "pkg:pypi/llvmlite@0.50.0",
+      "bom-ref": "pkg:pypi/llvmlite@0.50.0"
+    },
+    {
+      "type": "library",
+      "name": "macholib",
+      "version": "1.16.4",
+      "purl": "pkg:pypi/macholib@1.16.4",
+      "bom-ref": "pkg:pypi/macholib@1.16.4"
+    },
+    {
+      "type": "library",
+      "name": "Mako",
+      "version": "1.4.3",
+      "purl": "pkg:pypi/mako@1.4.3",
+      "bom-ref": "pkg:pypi/mako@1.4.3"
+    },
+    {
+      "type": "library",
+      "name": "markdown-it-py",
+      "version": "4.2.0",
+      "purl": "pkg:pypi/markdown-it-py@4.2.0",
+      "bom-ref": "pkg:pypi/markdown-it-py@4.2.0"
+    },
+    {
+      "type": "library",
+      "name": "MarkupSafe",
+      "version": "3.0.4",
+      "purl": "pkg:pypi/markupsafe@3.0.4",
+      "bom-ref": "pkg:pypi/markupsafe@3.0.4"
+    },
+    {
+      "type": "library",
+      "name": "matplotlib",
+      "version": "3.11.2",
+      "purl": "pkg:pypi/matplotlib@3.11.2",
+      "bom-ref": "pkg:pypi/matplotlib@3.11.2"
+    },
+    {
+      "type": "library",
+      "name": "mdurl",
+      "version": "0.1.2",
+      "purl": "pkg:pypi/mdurl@0.1.2",
+      "bom-ref": "pkg:pypi/mdurl@0.1.2"
+    },
+    {
+      "type": "library",
+      "name": "modelscope",
+      "version": "1.40.2",
+      "purl": "pkg:pypi/modelscope@1.40.2",
+      "bom-ref": "pkg:pypi/modelscope@1.40.2"
+    },
+    {
+      "type": "library",
+      "name": "modelscope-hub",
+      "version": "0.4.6",
+      "purl": "pkg:pypi/modelscope-hub@0.4.6",
+      "bom-ref": "pkg:pypi/modelscope-hub@0.4.6"
+    },
+    {
+      "type": "library",
+      "name": "mpmath",
+      "version": "1.3.0",
+      "purl": "pkg:pypi/mpmath@1.3.0",
+      "bom-ref": "pkg:pypi/mpmath@1.3.0"
+    },
+    {
+      "type": "library",
+      "name": "msgpack",
+      "version": "1.2.3",
+      "purl": "pkg:pypi/msgpack@1.2.3",
+      "bom-ref": "pkg:pypi/msgpack@1.2.3"
+    },
+    {
+      "type": "library",
+      "name": "multidict",
+      "version": "7.1.0",
+      "purl": "pkg:pypi/multidict@7.1.0",
+      "bom-ref": "pkg:pypi/multidict@7.1.0"
+    },
+    {
+      "type": "library",
+      "name": "narwhals",
+      "version": "2.27.1",
+      "purl": "pkg:pypi/narwhals@2.27.1",
+      "bom-ref": "pkg:pypi/narwhals@2.27.1"
+    },
+    {
+      "type": "library",
+      "name": "networkx",
+      "version": "3.6.1",
+      "purl": "pkg:pypi/networkx@3.6.1",
+      "bom-ref": "pkg:pypi/networkx@3.6.1"
+    },
+    {
+      "type": "library",
+      "name": "numba",
+      "version": "0.68.0",
+      "purl": "pkg:pypi/numba@0.68.0",
+      "bom-ref": "pkg:pypi/numba@0.68.0"
+    },
+    {
+      "type": "library",
+      "name": "numpy",
+      "version": "2.4.6",
+      "purl": "pkg:pypi/numpy@2.4.6",
+      "bom-ref": "pkg:pypi/numpy@2.4.6"
+    },
+    {
+      "type": "library",
+      "name": "omegaconf",
+      "version": "2.3.1",
+      "purl": "pkg:pypi/omegaconf@2.3.1",
+      "bom-ref": "pkg:pypi/omegaconf@2.3.1"
+    },
+    {
+      "type": "library",
+      "name": "onnxruntime",
+      "version": "1.31.0",
+      "purl": "pkg:pypi/onnxruntime@1.31.0",
+      "bom-ref": "pkg:pypi/onnxruntime@1.31.0"
+    },
+    {
+      "type": "library",
+      "name": "opentelemetry-api",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-api@1.45.1",
+      "bom-ref": "pkg:pypi/opentelemetry-api@1.45.1"
+    },
+    {
+      "type": "library",
+      "name": "opentelemetry-exporter-http-transport",
+      "version": "0.66b1",
+      "purl": "pkg:pypi/opentelemetry-exporter-http-transport@0.66b1",
+      "bom-ref": "pkg:pypi/opentelemetry-exporter-http-transport@0.66b1"
+    },
+    {
+      "type": "library",
+      "name": "opentelemetry-exporter-otlp",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-exporter-otlp@1.45.1",
+      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp@1.45.1"
+    },
+    {
+      "type": "library",
+      "name": "opentelemetry-exporter-otlp-common",
+      "version": "0.66b1",
+      "purl": "pkg:pypi/opentelemetry-exporter-otlp-common@0.66b1",
+      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp-common@0.66b1"
+    },
+    {
+      "type": "library",
+      "name": "opentelemetry-exporter-otlp-proto-common",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-exporter-otlp-proto-common@1.45.1",
+      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp-proto-common@1.45.1"
+    },
+    {
+      "type": "library",
+      "name": "opentelemetry-exporter-otlp-proto-grpc",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-exporter-otlp-proto-grpc@1.45.1",
+      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp-proto-grpc@1.45.1"
+    },
+    {
+      "type": "library",
+      "name": "opentelemetry-exporter-otlp-proto-http",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-exporter-otlp-proto-http@1.45.1",
+      "bom-ref": "pkg:pypi/opentelemetry-exporter-otlp-proto-http@1.45.1"
+    },
+    {
+      "type": "library",
+      "name": "opentelemetry-proto",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-proto@1.45.1",
+      "bom-ref": "pkg:pypi/opentelemetry-proto@1.45.1"
+    },
+    {
+      "type": "library",
+      "name": "opentelemetry-sdk",
+      "version": "1.45.1",
+      "purl": "pkg:pypi/opentelemetry-sdk@1.45.1",
+      "bom-ref": "pkg:pypi/opentelemetry-sdk@1.45.1"
+    },
+    {
+      "type": "library",
+      "name": "opentelemetry-semantic-conventions",
+      "version": "0.66b1",
+      "purl": "pkg:pypi/opentelemetry-semantic-conventions@0.66b1",
+      "bom-ref": "pkg:pypi/opentelemetry-semantic-conventions@0.66b1"
+    },
+    {
+      "type": "library",
+      "name": "optuna",
+      "version": "5.0.0",
+      "purl": "pkg:pypi/optuna@5.0.0",
+      "bom-ref": "pkg:pypi/optuna@5.0.0"
+    },
+    {
+      "type": "library",
+      "name": "oss2",
+      "version": "2.19.1",
+      "purl": "pkg:pypi/oss2@2.19.1",
+      "bom-ref": "pkg:pypi/oss2@2.19.1"
+    },
+    {
+      "type": "library",
+      "name": "packageurl-python",
+      "version": "0.17.6",
+      "purl": "pkg:pypi/packageurl-python@0.17.6",
+      "bom-ref": "pkg:pypi/packageurl-python@0.17.6"
+    },
+    {
+      "type": "library",
+      "name": "packaging",
+      "version": "26.3",
+      "purl": "pkg:pypi/packaging@26.3",
+      "bom-ref": "pkg:pypi/packaging@26.3"
+    },
+    {
+      "type": "library",
+      "name": "pandas",
+      "version": "3.0.6",
+      "purl": "pkg:pypi/pandas@3.0.6",
+      "bom-ref": "pkg:pypi/pandas@3.0.6"
+    },
+    {
+      "type": "library",
+      "name": "pillow",
+      "version": "13.0.0",
+      "purl": "pkg:pypi/pillow@13.0.0",
+      "bom-ref": "pkg:pypi/pillow@13.0.0"
+    },
+    {
+      "type": "library",
+      "name": "pip",
+      "version": "26.2.1",
+      "purl": "pkg:pypi/pip@26.2.1",
+      "bom-ref": "pkg:pypi/pip@26.2.1"
+    },
+    {
+      "type": "library",
+      "name": "pip_api",
+      "version": "0.0.35",
+      "purl": "pkg:pypi/pip-api@0.0.35",
+      "bom-ref": "pkg:pypi/pip-api@0.0.35"
+    },
+    {
+      "type": "library",
+      "name": "pip_audit",
+      "version": "2.10.1",
+      "purl": "pkg:pypi/pip-audit@2.10.1",
+      "bom-ref": "pkg:pypi/pip-audit@2.10.1"
+    },
+    {
+      "type": "library",
+      "name": "pip-requirements-parser",
+      "version": "32.0.1",
+      "purl": "pkg:pypi/pip-requirements-parser@32.0.1",
+      "bom-ref": "pkg:pypi/pip-requirements-parser@32.0.1"
+    },
+    {
+      "type": "library",
+      "name": "platformdirs",
+      "version": "4.13.3",
+      "purl": "pkg:pypi/platformdirs@4.13.3",
+      "bom-ref": "pkg:pypi/platformdirs@4.13.3"
+    },
+    {
+      "type": "library",
+      "name": "pooch",
+      "version": "1.9.0",
+      "purl": "pkg:pypi/pooch@1.9.0",
+      "bom-ref": "pkg:pypi/pooch@1.9.0"
+    },
+    {
+      "type": "library",
+      "name": "primePy",
+      "version": "1.3",
+      "purl": "pkg:pypi/primepy@1.3",
+      "bom-ref": "pkg:pypi/primepy@1.3"
+    },
+    {
+      "type": "library",
+      "name": "propcache",
+      "version": "0.5.4",
+      "purl": "pkg:pypi/propcache@0.5.4",
+      "bom-ref": "pkg:pypi/propcache@0.5.4"
+    },
+    {
+      "type": "library",
+      "name": "protobuf",
+      "version": "7.36.2",
+      "purl": "pkg:pypi/protobuf@7.36.2",
+      "bom-ref": "pkg:pypi/protobuf@7.36.2"
+    },
+    {
+      "type": "library",
+      "name": "py-serializable",
+      "version": "2.1.0",
+      "purl": "pkg:pypi/py-serializable@2.1.0",
+      "bom-ref": "pkg:pypi/py-serializable@2.1.0"
+    },
+    {
+      "type": "library",
+      "name": "pyannote-audio",
+      "version": "4.0.7",
+      "purl": "pkg:pypi/pyannote-audio@4.0.7",
+      "bom-ref": "pkg:pypi/pyannote-audio@4.0.7"
+    },
+    {
+      "type": "library",
+      "name": "pyannote-core",
+      "version": "6.1.0",
+      "purl": "pkg:pypi/pyannote-core@6.1.0",
+      "bom-ref": "pkg:pypi/pyannote-core@6.1.0"
+    },
+    {
+      "type": "library",
+      "name": "pyannote-database",
+      "version": "6.1.1",
+      "purl": "pkg:pypi/pyannote-database@6.1.1",
+      "bom-ref": "pkg:pypi/pyannote-database@6.1.1"
+    },
+    {
+      "type": "library",
+      "name": "pyannote-metrics",
+      "version": "4.2.0",
+      "purl": "pkg:pypi/pyannote-metrics@4.2.0",
+      "bom-ref": "pkg:pypi/pyannote-metrics@4.2.0"
+    },
+    {
+      "type": "library",
+      "name": "pyannote-pipeline",
+      "version": "4.1.0",
+      "purl": "pkg:pypi/pyannote-pipeline@4.1.0",
+      "bom-ref": "pkg:pypi/pyannote-pipeline@4.1.0"
+    },
+    {
+      "type": "library",
+      "name": "pyannoteai-sdk",
+      "version": "0.4.0",
+      "purl": "pkg:pypi/pyannoteai-sdk@0.4.0",
+      "bom-ref": "pkg:pypi/pyannoteai-sdk@0.4.0"
+    },
+    {
+      "type": "library",
+      "name": "pycparser",
+      "version": "3.11",
+      "purl": "pkg:pypi/pycparser@3.11",
+      "bom-ref": "pkg:pypi/pycparser@3.11"
+    },
+    {
+      "type": "library",
+      "name": "pycryptodome",
+      "version": "4.0.1",
+      "purl": "pkg:pypi/pycryptodome@4.0.1",
+      "bom-ref": "pkg:pypi/pycryptodome@4.0.1"
+    },
+    {
+      "type": "library",
+      "name": "Pygments",
+      "version": "2.21.0",
+      "purl": "pkg:pypi/pygments@2.21.0",
+      "bom-ref": "pkg:pypi/pygments@2.21.0"
+    },
+    {
+      "type": "library",
+      "name": "pyinstaller",
+      "version": "6.22.3",
+      "purl": "pkg:pypi/pyinstaller@6.22.3",
+      "bom-ref": "pkg:pypi/pyinstaller@6.22.3"
+    },
+    {
+      "type": "library",
+      "name": "pyinstaller-hooks-contrib",
+      "version": "2026.8",
+      "purl": "pkg:pypi/pyinstaller-hooks-contrib@2026.8",
+      "bom-ref": "pkg:pypi/pyinstaller-hooks-contrib@2026.8"
+    },
+    {
+      "type": "library",
+      "name": "pynndescent",
+      "version": "0.6.0",
+      "purl": "pkg:pypi/pynndescent@0.6.0",
+      "bom-ref": "pkg:pypi/pynndescent@0.6.0"
+    },
+    {
+      "type": "library",
+      "name": "pyparsing",
+      "version": "3.3.3",
+      "purl": "pkg:pypi/pyparsing@3.3.3",
+      "bom-ref": "pkg:pypi/pyparsing@3.3.3"
+    },
+    {
+      "type": "library",
+      "name": "python-dateutil",
+      "version": "2.9.0.post0",
+      "purl": "pkg:pypi/python-dateutil@2.9.0.post0",
+      "bom-ref": "pkg:pypi/python-dateutil@2.9.0.post0"
+    },
+    {
+      "type": "library",
+      "name": "pytorch-lightning",
+      "version": "2.6.6",
+      "purl": "pkg:pypi/pytorch-lightning@2.6.6",
+      "bom-ref": "pkg:pypi/pytorch-lightning@2.6.6"
+    },
+    {
+      "type": "library",
+      "name": "pytorch-metric-learning",
+      "version": "2.9.0",
+      "purl": "pkg:pypi/pytorch-metric-learning@2.9.0",
+      "bom-ref": "pkg:pypi/pytorch-metric-learning@2.9.0"
+    },
+    {
+      "type": "library",
+      "name": "PyYAML",
+      "version": "6.0.3",
+      "purl": "pkg:pypi/pyyaml@6.0.3",
+      "bom-ref": "pkg:pypi/pyyaml@6.0.3"
+    },
+    {
+      "type": "library",
+      "name": "RapidFuzz",
+      "version": "3.14.6",
+      "purl": "pkg:pypi/rapidfuzz@3.14.6",
+      "bom-ref": "pkg:pypi/rapidfuzz@3.14.6"
+    },
+    {
+      "type": "library",
+      "name": "regex",
+      "version": "2026.9.29",
+      "purl": "pkg:pypi/regex@2026.9.29",
+      "bom-ref": "pkg:pypi/regex@2026.9.29"
+    },
+    {
+      "type": "library",
+      "name": "requests",
+      "version": "2.34.2",
+      "purl": "pkg:pypi/requests@2.34.2",
+      "bom-ref": "pkg:pypi/requests@2.34.2"
+    },
+    {
+      "type": "library",
+      "name": "rich",
+      "version": "15.0.0",
+      "purl": "pkg:pypi/rich@15.0.0",
+      "bom-ref": "pkg:pypi/rich@15.0.0"
+    },
+    {
+      "type": "library",
+      "name": "safetensors",
+      "version": "0.8.0",
+      "purl": "pkg:pypi/safetensors@0.8.0",
+      "bom-ref": "pkg:pypi/safetensors@0.8.0"
+    },
+    {
+      "type": "library",
+      "name": "scikit-learn",
+      "version": "1.9.1",
+      "purl": "pkg:pypi/scikit-learn@1.9.1",
+      "bom-ref": "pkg:pypi/scikit-learn@1.9.1"
+    },
+    {
+      "type": "library",
+      "name": "scipy",
+      "version": "1.17.1",
+      "purl": "pkg:pypi/scipy@1.17.1",
+      "bom-ref": "pkg:pypi/scipy@1.17.1"
+    },
+    {
+      "type": "library",
+      "name": "sentencepiece",
+      "version": "0.2.2",
+      "purl": "pkg:pypi/sentencepiece@0.2.2",
+      "bom-ref": "pkg:pypi/sentencepiece@0.2.2"
+    },
+    {
+      "type": "library",
+      "name": "setuptools",
+      "version": "83.0.0",
+      "purl": "pkg:pypi/setuptools@83.0.0",
+      "bom-ref": "pkg:pypi/setuptools@83.0.0"
+    },
+    {
+      "type": "library",
+      "name": "shellingham",
+      "version": "1.5.4",
+      "purl": "pkg:pypi/shellingham@1.5.4",
+      "bom-ref": "pkg:pypi/shellingham@1.5.4"
+    },
+    {
+      "type": "library",
+      "name": "sherpa_onnx",
+      "version": "1.13.8+hermeneus.1",
+      "purl": "pkg:pypi/sherpa-onnx@1.13.8%2Bhermeneus.1",
+      "bom-ref": "pkg:pypi/sherpa-onnx@1.13.8%2Bhermeneus.1"
+    },
+    {
+      "type": "library",
+      "name": "six",
+      "version": "1.17.0",
+      "purl": "pkg:pypi/six@1.17.0",
+      "bom-ref": "pkg:pypi/six@1.17.0"
+    },
+    {
+      "type": "library",
+      "name": "sortedcontainers",
+      "version": "2.4.0",
+      "purl": "pkg:pypi/sortedcontainers@2.4.0",
+      "bom-ref": "pkg:pypi/sortedcontainers@2.4.0"
+    },
+    {
+      "type": "library",
+      "name": "soundfile",
+      "version": "0.14.0",
+      "purl": "pkg:pypi/soundfile@0.14.0",
+      "bom-ref": "pkg:pypi/soundfile@0.14.0"
+    },
+    {
+      "type": "library",
+      "name": "soxr",
+      "version": "1.1.0",
+      "purl": "pkg:pypi/soxr@1.1.0",
+      "bom-ref": "pkg:pypi/soxr@1.1.0"
+    },
+    {
+      "type": "library",
+      "name": "SQLAlchemy",
+      "version": "2.1.5",
+      "purl": "pkg:pypi/sqlalchemy@2.1.5",
+      "bom-ref": "pkg:pypi/sqlalchemy@2.1.5"
+    },
+    {
+      "type": "library",
+      "name": "sympy",
+      "version": "1.14.0",
+      "purl": "pkg:pypi/sympy@1.14.0",
+      "bom-ref": "pkg:pypi/sympy@1.14.0"
+    },
+    {
+      "type": "library",
+      "name": "tensorboardX",
+      "version": "2.6.5",
+      "purl": "pkg:pypi/tensorboardx@2.6.5",
+      "bom-ref": "pkg:pypi/tensorboardx@2.6.5"
+    },
+    {
+      "type": "library",
+      "name": "threadpoolctl",
+      "version": "3.7.0",
+      "purl": "pkg:pypi/threadpoolctl@3.7.0",
+      "bom-ref": "pkg:pypi/threadpoolctl@3.7.0"
+    },
+    {
+      "type": "library",
+      "name": "tiktoken",
+      "version": "0.14.0",
+      "purl": "pkg:pypi/tiktoken@0.14.0",
+      "bom-ref": "pkg:pypi/tiktoken@0.14.0"
+    },
+    {
+      "type": "library",
+      "name": "tokenizers",
+      "version": "0.23.3",
+      "purl": "pkg:pypi/tokenizers@0.23.3",
+      "bom-ref": "pkg:pypi/tokenizers@0.23.3"
+    },
+    {
+      "type": "library",
+      "name": "tomli",
+      "version": "2.5.0",
+      "purl": "pkg:pypi/tomli@2.5.0",
+      "bom-ref": "pkg:pypi/tomli@2.5.0"
+    },
+    {
+      "type": "library",
+      "name": "tomli_w",
+      "version": "1.2.0",
+      "purl": "pkg:pypi/tomli-w@1.2.0",
+      "bom-ref": "pkg:pypi/tomli-w@1.2.0"
+    },
+    {
+      "type": "library",
+      "name": "torch",
+      "version": "2.14.1",
+      "purl": "pkg:pypi/torch@2.14.1",
+      "bom-ref": "pkg:pypi/torch@2.14.1"
+    },
+    {
+      "type": "library",
+      "name": "torch-audiomentations",
+      "version": "0.12.0",
+      "purl": "pkg:pypi/torch-audiomentations@0.12.0",
+      "bom-ref": "pkg:pypi/torch-audiomentations@0.12.0"
+    },
+    {
+      "type": "library",
+      "name": "torch-complex",
+      "version": "0.4.4",
+      "purl": "pkg:pypi/torch-complex@0.4.4",
+      "bom-ref": "pkg:pypi/torch-complex@0.4.4"
+    },
+    {
+      "type": "library",
+      "name": "torch_pitch_shift",
+      "version": "1.2.5",
+      "purl": "pkg:pypi/torch-pitch-shift@1.2.5",
+      "bom-ref": "pkg:pypi/torch-pitch-shift@1.2.5"
+    },
+    {
+      "type": "library",
+      "name": "torchaudio",
+      "version": "2.11.0",
+      "purl": "pkg:pypi/torchaudio@2.11.0",
+      "bom-ref": "pkg:pypi/torchaudio@2.11.0"
+    },
+    {
+      "type": "library",
+      "name": "torchcodec",
+      "version": "0.16.0",
+      "purl": "pkg:pypi/torchcodec@0.16.0",
+      "bom-ref": "pkg:pypi/torchcodec@0.16.0"
+    },
+    {
+      "type": "library",
+      "name": "torchmetrics",
+      "version": "1.9.0",
+      "purl": "pkg:pypi/torchmetrics@1.9.0",
+      "bom-ref": "pkg:pypi/torchmetrics@1.9.0"
+    },
+    {
+      "type": "library",
+      "name": "tqdm",
+      "version": "4.70.1",
+      "purl": "pkg:pypi/tqdm@4.70.1",
+      "bom-ref": "pkg:pypi/tqdm@4.70.1"
+    },
+    {
+      "type": "library",
+      "name": "transformers",
+      "version": "5.20.1",
+      "purl": "pkg:pypi/transformers@5.20.1",
+      "bom-ref": "pkg:pypi/transformers@5.20.1"
+    },
+    {
+      "type": "library",
+      "name": "truststore",
+      "version": "0.10.5",
+      "purl": "pkg:pypi/truststore@0.10.5",
+      "bom-ref": "pkg:pypi/truststore@0.10.5"
+    },
+    {
+      "type": "library",
+      "name": "typer",
+      "version": "0.27.3",
+      "purl": "pkg:pypi/typer@0.27.3",
+      "bom-ref": "pkg:pypi/typer@0.27.3"
+    },
+    {
+      "type": "library",
+      "name": "typing_extensions",
+      "version": "4.16.0",
+      "purl": "pkg:pypi/typing-extensions@4.16.0",
+      "bom-ref": "pkg:pypi/typing-extensions@4.16.0"
+    },
+    {
+      "type": "library",
+      "name": "umap-learn",
+      "version": "0.5.12",
+      "purl": "pkg:pypi/umap-learn@0.5.12",
+      "bom-ref": "pkg:pypi/umap-learn@0.5.12"
+    },
+    {
+      "type": "library",
+      "name": "urllib3",
+      "version": "2.8.0",
+      "purl": "pkg:pypi/urllib3@2.8.0",
+      "bom-ref": "pkg:pypi/urllib3@2.8.0"
+    },
+    {
+      "type": "library",
+      "name": "websockets",
+      "version": "17.2",
+      "purl": "pkg:pypi/websockets@17.2",
+      "bom-ref": "pkg:pypi/websockets@17.2"
+    },
+    {
+      "type": "library",
+      "name": "wheel",
+      "version": "0.48.0",
+      "purl": "pkg:pypi/wheel@0.48.0",
+      "bom-ref": "pkg:pypi/wheel@0.48.0"
+    },
+    {
+      "type": "library",
+      "name": "yarl",
+      "version": "1.25.1",
+      "purl": "pkg:pypi/yarl@1.25.1",
+      "bom-ref": "pkg:pypi/yarl@1.25.1"
+    },
+    {
+      "type": "library",
+      "name": "github.com/TheTitanrain/w32",
+      "version": "v0.0.0-20180517000239-4f5cfb03fabf",
+      "purl": "pkg:golang/github.com/TheTitanrain/w32@v0.0.0-20180517000239-4f5cfb03fabf",
+      "bom-ref": "pkg:golang/github.com/TheTitanrain/w32@v0.0.0-20180517000239-4f5cfb03fabf",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/containerd/console",
+      "version": "v1.0.3",
+      "purl": "pkg:golang/github.com/containerd/console@v1.0.3",
+      "bom-ref": "pkg:golang/github.com/containerd/console@v1.0.3",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/gin-gonic/gin",
+      "version": "v1.12.0",
+      "purl": "pkg:golang/github.com/gin-gonic/gin@v1.12.0",
+      "bom-ref": "pkg:golang/github.com/gin-gonic/gin@v1.12.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/google/go-cmp",
+      "version": "v0.7.0",
+      "purl": "pkg:golang/github.com/google/go-cmp@v0.7.0",
+      "bom-ref": "pkg:golang/github.com/google/go-cmp@v0.7.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/google/uuid",
+      "version": "v1.6.0",
+      "purl": "pkg:golang/github.com/google/uuid@v1.6.0",
+      "bom-ref": "pkg:golang/github.com/google/uuid@v1.6.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/ledongthuc/pdf",
+      "version": "v0.0.0-20250511090121-5959a4027728",
+      "purl": "pkg:golang/github.com/ledongthuc/pdf@v0.0.0-20250511090121-5959a4027728",
+      "bom-ref": "pkg:golang/github.com/ledongthuc/pdf@v0.0.0-20250511090121-5959a4027728",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/mattn/go-sqlite3",
+      "version": "v1.14.52",
+      "purl": "pkg:golang/github.com/mattn/go-sqlite3@v1.14.52",
+      "bom-ref": "pkg:golang/github.com/mattn/go-sqlite3@v1.14.52",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/olekukonko/tablewriter",
+      "version": "v0.0.5",
+      "purl": "pkg:golang/github.com/olekukonko/tablewriter@v0.0.5",
+      "bom-ref": "pkg:golang/github.com/olekukonko/tablewriter@v0.0.5",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/spf13/cobra",
+      "version": "v1.7.0",
+      "purl": "pkg:golang/github.com/spf13/cobra@v1.7.0",
+      "bom-ref": "pkg:golang/github.com/spf13/cobra@v1.7.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/stretchr/testify",
+      "version": "v1.11.1",
+      "purl": "pkg:golang/github.com/stretchr/testify@v1.11.1",
+      "bom-ref": "pkg:golang/github.com/stretchr/testify@v1.11.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/x448/float16",
+      "version": "v0.8.4",
+      "purl": "pkg:golang/github.com/x448/float16@v0.8.4",
+      "bom-ref": "pkg:golang/github.com/x448/float16@v0.8.4",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "golang.org/x/sync",
+      "version": "v0.23.0",
+      "purl": "pkg:golang/golang.org/x/sync@v0.23.0",
+      "bom-ref": "pkg:golang/golang.org/x/sync@v0.23.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "golang.org/x/sys",
+      "version": "v0.48.0",
+      "purl": "pkg:golang/golang.org/x/sys@v0.48.0",
+      "bom-ref": "pkg:golang/golang.org/x/sys@v0.48.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/agnivade/levenshtein",
+      "version": "v1.1.1",
+      "purl": "pkg:golang/github.com/agnivade/levenshtein@v1.1.1",
+      "bom-ref": "pkg:golang/github.com/agnivade/levenshtein@v1.1.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/charmbracelet/bubbletea",
+      "version": "v1.3.10",
+      "purl": "pkg:golang/github.com/charmbracelet/bubbletea@v1.3.10",
+      "bom-ref": "pkg:golang/github.com/charmbracelet/bubbletea@v1.3.10",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/charmbracelet/lipgloss",
+      "version": "v1.1.0",
+      "purl": "pkg:golang/github.com/charmbracelet/lipgloss@v1.1.0",
+      "bom-ref": "pkg:golang/github.com/charmbracelet/lipgloss@v1.1.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/d4l3k/go-bfloat16",
+      "version": "v0.0.0-20211005043715-690c3bdd05f1",
+      "purl": "pkg:golang/github.com/d4l3k/go-bfloat16@v0.0.0-20211005043715-690c3bdd05f1",
+      "bom-ref": "pkg:golang/github.com/d4l3k/go-bfloat16@v0.0.0-20211005043715-690c3bdd05f1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/emirpasic/gods/v2",
+      "version": "v2.0.0-alpha",
+      "purl": "pkg:golang/github.com/emirpasic/gods/v2@v2.0.0-alpha",
+      "bom-ref": "pkg:golang/github.com/emirpasic/gods/v2@v2.0.0-alpha",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/klauspost/compress",
+      "version": "v1.18.7",
+      "purl": "pkg:golang/github.com/klauspost/compress@v1.18.7",
+      "bom-ref": "pkg:golang/github.com/klauspost/compress@v1.18.7",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/mattn/go-runewidth",
+      "version": "v0.0.16",
+      "purl": "pkg:golang/github.com/mattn/go-runewidth@v0.0.16",
+      "bom-ref": "pkg:golang/github.com/mattn/go-runewidth@v0.0.16",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/pelletier/go-toml/v2",
+      "version": "v2.2.4",
+      "purl": "pkg:golang/github.com/pelletier/go-toml/v2@v2.2.4",
+      "bom-ref": "pkg:golang/github.com/pelletier/go-toml/v2@v2.2.4",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/pkg/browser",
+      "version": "v0.0.0-20240102092130-5ac0b6a4141c",
+      "purl": "pkg:golang/github.com/pkg/browser@v0.0.0-20240102092130-5ac0b6a4141c",
+      "bom-ref": "pkg:golang/github.com/pkg/browser@v0.0.0-20240102092130-5ac0b6a4141c",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/tkrajina/typescriptify-golang-structs",
+      "version": "v0.2.0",
+      "purl": "pkg:golang/github.com/tkrajina/typescriptify-golang-structs@v0.2.0",
+      "bom-ref": "pkg:golang/github.com/tkrajina/typescriptify-golang-structs@v0.2.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/tree-sitter/go-tree-sitter",
+      "version": "v0.25.0",
+      "purl": "pkg:golang/github.com/tree-sitter/go-tree-sitter@v0.25.0",
+      "bom-ref": "pkg:golang/github.com/tree-sitter/go-tree-sitter@v0.25.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/tree-sitter/tree-sitter-cpp",
+      "version": "v0.23.4",
+      "purl": "pkg:golang/github.com/tree-sitter/tree-sitter-cpp@v0.23.4",
+      "bom-ref": "pkg:golang/github.com/tree-sitter/tree-sitter-cpp@v0.23.4",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/wk8/go-ordered-map/v2",
+      "version": "v2.1.8",
+      "purl": "pkg:golang/github.com/wk8/go-ordered-map/v2@v2.1.8",
+      "bom-ref": "pkg:golang/github.com/wk8/go-ordered-map/v2@v2.1.8",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "go.yaml.in/yaml/v3",
+      "version": "v3.0.4",
+      "purl": "pkg:golang/go.yaml.in/yaml/v3@v3.0.4",
+      "bom-ref": "pkg:golang/go.yaml.in/yaml/v3@v3.0.4",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "golang.org/x/image",
+      "version": "v0.45.0",
+      "purl": "pkg:golang/golang.org/x/image@v0.45.0",
+      "bom-ref": "pkg:golang/golang.org/x/image@v0.45.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "golang.org/x/mod",
+      "version": "v0.41.0",
+      "purl": "pkg:golang/golang.org/x/mod@v0.41.0",
+      "bom-ref": "pkg:golang/golang.org/x/mod@v0.41.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/aymanbagabas/go-osc52/v2",
+      "version": "v2.0.1",
+      "purl": "pkg:golang/github.com/aymanbagabas/go-osc52/v2@v2.0.1",
+      "bom-ref": "pkg:golang/github.com/aymanbagabas/go-osc52/v2@v2.0.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/bahlo/generic-list-go",
+      "version": "v0.2.0",
+      "purl": "pkg:golang/github.com/bahlo/generic-list-go@v0.2.0",
+      "bom-ref": "pkg:golang/github.com/bahlo/generic-list-go@v0.2.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/buger/jsonparser",
+      "version": "v1.1.2",
+      "purl": "pkg:golang/github.com/buger/jsonparser@v1.1.2",
+      "bom-ref": "pkg:golang/github.com/buger/jsonparser@v1.1.2",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/bytedance/gopkg",
+      "version": "v0.1.3",
+      "purl": "pkg:golang/github.com/bytedance/gopkg@v0.1.3",
+      "bom-ref": "pkg:golang/github.com/bytedance/gopkg@v0.1.3",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/bytedance/sonic/loader",
+      "version": "v0.5.0",
+      "purl": "pkg:golang/github.com/bytedance/sonic/loader@v0.5.0",
+      "bom-ref": "pkg:golang/github.com/bytedance/sonic/loader@v0.5.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/charmbracelet/colorprofile",
+      "version": "v0.2.3-0.20250311203215-f60798e515dc",
+      "purl": "pkg:golang/github.com/charmbracelet/colorprofile@v0.2.3-0.20250311203215-f60798e515dc",
+      "bom-ref": "pkg:golang/github.com/charmbracelet/colorprofile@v0.2.3-0.20250311203215-f60798e515dc",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/charmbracelet/x/ansi",
+      "version": "v0.10.1",
+      "purl": "pkg:golang/github.com/charmbracelet/x/ansi@v0.10.1",
+      "bom-ref": "pkg:golang/github.com/charmbracelet/x/ansi@v0.10.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/charmbracelet/x/cellbuf",
+      "version": "v0.0.13-0.20250311204145-2c3ea96c31dd",
+      "purl": "pkg:golang/github.com/charmbracelet/x/cellbuf@v0.0.13-0.20250311204145-2c3ea96c31dd",
+      "bom-ref": "pkg:golang/github.com/charmbracelet/x/cellbuf@v0.0.13-0.20250311204145-2c3ea96c31dd",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/charmbracelet/x/term",
+      "version": "v0.2.1",
+      "purl": "pkg:golang/github.com/charmbracelet/x/term@v0.2.1",
+      "bom-ref": "pkg:golang/github.com/charmbracelet/x/term@v0.2.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/cloudwego/base64x",
+      "version": "v0.1.6",
+      "purl": "pkg:golang/github.com/cloudwego/base64x@v0.1.6",
+      "bom-ref": "pkg:golang/github.com/cloudwego/base64x@v0.1.6",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/davecgh/go-spew",
+      "version": "v1.1.1",
+      "purl": "pkg:golang/github.com/davecgh/go-spew@v1.1.1",
+      "bom-ref": "pkg:golang/github.com/davecgh/go-spew@v1.1.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/erikgeiser/coninput",
+      "version": "v0.0.0-20211004153227-1c3628e74d0f",
+      "purl": "pkg:golang/github.com/erikgeiser/coninput@v0.0.0-20211004153227-1c3628e74d0f",
+      "bom-ref": "pkg:golang/github.com/erikgeiser/coninput@v0.0.0-20211004153227-1c3628e74d0f",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/goccy/go-yaml",
+      "version": "v1.19.2",
+      "purl": "pkg:golang/github.com/goccy/go-yaml@v1.19.2",
+      "bom-ref": "pkg:golang/github.com/goccy/go-yaml@v1.19.2",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/lucasb-eyer/go-colorful",
+      "version": "v1.2.0",
+      "purl": "pkg:golang/github.com/lucasb-eyer/go-colorful@v1.2.0",
+      "bom-ref": "pkg:golang/github.com/lucasb-eyer/go-colorful@v1.2.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/mailru/easyjson",
+      "version": "v0.7.7",
+      "purl": "pkg:golang/github.com/mailru/easyjson@v0.7.7",
+      "bom-ref": "pkg:golang/github.com/mailru/easyjson@v0.7.7",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/mattn/go-localereader",
+      "version": "v0.0.2-0.20220822084737-6bae6c923850",
+      "purl": "pkg:golang/github.com/mattn/go-localereader@v0.0.2-0.20220822084737-6bae6c923850",
+      "bom-ref": "pkg:golang/github.com/mattn/go-localereader@v0.0.2-0.20220822084737-6bae6c923850",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/mattn/go-pointer",
+      "version": "v0.0.1",
+      "purl": "pkg:golang/github.com/mattn/go-pointer@v0.0.1",
+      "bom-ref": "pkg:golang/github.com/mattn/go-pointer@v0.0.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/muesli/ansi",
+      "version": "v0.0.0-20230316100256-276c6243b2f6",
+      "purl": "pkg:golang/github.com/muesli/ansi@v0.0.0-20230316100256-276c6243b2f6",
+      "bom-ref": "pkg:golang/github.com/muesli/ansi@v0.0.0-20230316100256-276c6243b2f6",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/muesli/cancelreader",
+      "version": "v0.2.2",
+      "purl": "pkg:golang/github.com/muesli/cancelreader@v0.2.2",
+      "bom-ref": "pkg:golang/github.com/muesli/cancelreader@v0.2.2",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/muesli/termenv",
+      "version": "v0.16.0",
+      "purl": "pkg:golang/github.com/muesli/termenv@v0.16.0",
+      "bom-ref": "pkg:golang/github.com/muesli/termenv@v0.16.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/pmezard/go-difflib",
+      "version": "v1.0.0",
+      "purl": "pkg:golang/github.com/pmezard/go-difflib@v1.0.0",
+      "bom-ref": "pkg:golang/github.com/pmezard/go-difflib@v1.0.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/quic-go/qpack",
+      "version": "v0.6.0",
+      "purl": "pkg:golang/github.com/quic-go/qpack@v0.6.0",
+      "bom-ref": "pkg:golang/github.com/quic-go/qpack@v0.6.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/quic-go/quic-go",
+      "version": "v0.59.1",
+      "purl": "pkg:golang/github.com/quic-go/quic-go@v0.59.1",
+      "bom-ref": "pkg:golang/github.com/quic-go/quic-go@v0.59.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/rivo/uniseg",
+      "version": "v0.4.7",
+      "purl": "pkg:golang/github.com/rivo/uniseg@v0.4.7",
+      "bom-ref": "pkg:golang/github.com/rivo/uniseg@v0.4.7",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/tkrajina/go-reflector",
+      "version": "v0.5.5",
+      "purl": "pkg:golang/github.com/tkrajina/go-reflector@v0.5.5",
+      "bom-ref": "pkg:golang/github.com/tkrajina/go-reflector@v0.5.5",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/xo/terminfo",
+      "version": "v0.0.0-20220910002029-abceb7e1c41e",
+      "purl": "pkg:golang/github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e",
+      "bom-ref": "pkg:golang/github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "go.mongodb.org/mongo-driver/v2",
+      "version": "v2.5.0",
+      "purl": "pkg:golang/go.mongodb.org/mongo-driver/v2@v2.5.0",
+      "bom-ref": "pkg:golang/go.mongodb.org/mongo-driver/v2@v2.5.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/bytedance/sonic",
+      "version": "v1.15.0",
+      "purl": "pkg:golang/github.com/bytedance/sonic@v1.15.0",
+      "bom-ref": "pkg:golang/github.com/bytedance/sonic@v1.15.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/gabriel-vasile/mimetype",
+      "version": "v1.4.12",
+      "purl": "pkg:golang/github.com/gabriel-vasile/mimetype@v1.4.12",
+      "bom-ref": "pkg:golang/github.com/gabriel-vasile/mimetype@v1.4.12",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/gin-contrib/cors",
+      "version": "v1.7.2",
+      "purl": "pkg:golang/github.com/gin-contrib/cors@v1.7.2",
+      "bom-ref": "pkg:golang/github.com/gin-contrib/cors@v1.7.2",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/gin-contrib/sse",
+      "version": "v1.1.0",
+      "purl": "pkg:golang/github.com/gin-contrib/sse@v1.1.0",
+      "bom-ref": "pkg:golang/github.com/gin-contrib/sse@v1.1.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/go-playground/locales",
+      "version": "v0.14.1",
+      "purl": "pkg:golang/github.com/go-playground/locales@v0.14.1",
+      "bom-ref": "pkg:golang/github.com/go-playground/locales@v0.14.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/go-playground/universal-translator",
+      "version": "v0.18.1",
+      "purl": "pkg:golang/github.com/go-playground/universal-translator@v0.18.1",
+      "bom-ref": "pkg:golang/github.com/go-playground/universal-translator@v0.18.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/go-playground/validator/v10",
+      "version": "v10.30.1",
+      "purl": "pkg:golang/github.com/go-playground/validator/v10@v10.30.1",
+      "bom-ref": "pkg:golang/github.com/go-playground/validator/v10@v10.30.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/goccy/go-json",
+      "version": "v0.10.5",
+      "purl": "pkg:golang/github.com/goccy/go-json@v0.10.5",
+      "bom-ref": "pkg:golang/github.com/goccy/go-json@v0.10.5",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/inconshreveable/mousetrap",
+      "version": "v1.1.0",
+      "purl": "pkg:golang/github.com/inconshreveable/mousetrap@v1.1.0",
+      "bom-ref": "pkg:golang/github.com/inconshreveable/mousetrap@v1.1.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/json-iterator/go",
+      "version": "v1.1.12",
+      "purl": "pkg:golang/github.com/json-iterator/go@v1.1.12",
+      "bom-ref": "pkg:golang/github.com/json-iterator/go@v1.1.12",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/klauspost/cpuid/v2",
+      "version": "v2.3.0",
+      "purl": "pkg:golang/github.com/klauspost/cpuid/v2@v2.3.0",
+      "bom-ref": "pkg:golang/github.com/klauspost/cpuid/v2@v2.3.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/leodido/go-urn",
+      "version": "v1.4.0",
+      "purl": "pkg:golang/github.com/leodido/go-urn@v1.4.0",
+      "bom-ref": "pkg:golang/github.com/leodido/go-urn@v1.4.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/mattn/go-isatty",
+      "version": "v0.0.20",
+      "purl": "pkg:golang/github.com/mattn/go-isatty@v0.0.20",
+      "bom-ref": "pkg:golang/github.com/mattn/go-isatty@v0.0.20",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/modern-go/concurrent",
+      "version": "v0.0.0-20180306012644-bacd9c7ef1dd",
+      "purl": "pkg:golang/github.com/modern-go/concurrent@v0.0.0-20180306012644-bacd9c7ef1dd",
+      "bom-ref": "pkg:golang/github.com/modern-go/concurrent@v0.0.0-20180306012644-bacd9c7ef1dd",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/modern-go/reflect2",
+      "version": "v1.0.2",
+      "purl": "pkg:golang/github.com/modern-go/reflect2@v1.0.2",
+      "bom-ref": "pkg:golang/github.com/modern-go/reflect2@v1.0.2",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/spf13/pflag",
+      "version": "v1.0.5",
+      "purl": "pkg:golang/github.com/spf13/pflag@v1.0.5",
+      "bom-ref": "pkg:golang/github.com/spf13/pflag@v1.0.5",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/twitchyliquid64/golang-asm",
+      "version": "v0.15.1",
+      "purl": "pkg:golang/github.com/twitchyliquid64/golang-asm@v0.15.1",
+      "bom-ref": "pkg:golang/github.com/twitchyliquid64/golang-asm@v0.15.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "github.com/ugorji/go/codec",
+      "version": "v1.3.1",
+      "purl": "pkg:golang/github.com/ugorji/go/codec@v1.3.1",
+      "bom-ref": "pkg:golang/github.com/ugorji/go/codec@v1.3.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "golang.org/x/arch",
+      "version": "v0.22.0",
+      "purl": "pkg:golang/golang.org/x/arch@v0.22.0",
+      "bom-ref": "pkg:golang/golang.org/x/arch@v0.22.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "golang.org/x/crypto",
+      "version": "v0.57.0",
+      "purl": "pkg:golang/golang.org/x/crypto@v0.57.0",
+      "bom-ref": "pkg:golang/golang.org/x/crypto@v0.57.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "golang.org/x/exp",
+      "version": "v0.0.0-20250218142911-aa4b98e5adaa",
+      "purl": "pkg:golang/golang.org/x/exp@v0.0.0-20250218142911-aa4b98e5adaa",
+      "bom-ref": "pkg:golang/golang.org/x/exp@v0.0.0-20250218142911-aa4b98e5adaa",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "golang.org/x/net",
+      "version": "v0.60.0",
+      "purl": "pkg:golang/golang.org/x/net@v0.60.0",
+      "bom-ref": "pkg:golang/golang.org/x/net@v0.60.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "golang.org/x/term",
+      "version": "v0.46.0",
+      "purl": "pkg:golang/golang.org/x/term@v0.46.0",
+      "bom-ref": "pkg:golang/golang.org/x/term@v0.46.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "golang.org/x/text",
+      "version": "v0.42.0",
+      "purl": "pkg:golang/golang.org/x/text@v0.42.0",
+      "bom-ref": "pkg:golang/golang.org/x/text@v0.42.0",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "google.golang.org/protobuf",
+      "version": "v1.36.10",
+      "purl": "pkg:golang/google.golang.org/protobuf@v1.36.10",
+      "bom-ref": "pkg:golang/google.golang.org/protobuf@v1.36.10",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "gopkg.in/yaml.v3",
+      "version": "v3.0.1",
+      "purl": "pkg:golang/gopkg.in/yaml.v3@v3.0.1",
+      "bom-ref": "pkg:golang/gopkg.in/yaml.v3@v3.0.1",
+      "properties": [
+        {
+          "name": "hermeneus:direct",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "CPython",
+      "version": "3.11.17",
+      "bom-ref": "native:CPython"
+    },
+    {
+      "type": "library",
+      "name": "Go",
+      "version": "1.27.2",
+      "bom-ref": "native:Go"
+    },
+    {
+      "type": "library",
+      "name": "SQLite",
+      "version": "3.53.4",
+      "bom-ref": "native:SQLite"
+    },
+    {
+      "type": "library",
+      "name": "libsndfile",
+      "version": "1.2.2-hermeneus.2",
+      "bom-ref": "native:libsndfile"
+    },
+    {
+      "type": "library",
+      "name": "FFmpeg-private",
+      "version": "8.1.2",
+      "bom-ref": "native:FFmpeg-private"
+    },
+    {
+      "type": "library",
+      "name": "FFmpeg-PyAV",
+      "version": "8.1.2",
+      "bom-ref": "native:FFmpeg-PyAV"
+    },
+    {
+      "type": "library",
+      "name": "ONNXRuntime-sherpa",
+      "version": "1.28.2",
+      "bom-ref": "native:ONNXRuntime-sherpa"
+    },
+    {
+      "type": "library",
+      "name": "xgrammar-mlx-payload",
+      "version": "0.2.7",
+      "bom-ref": "native:xgrammar-mlx-payload"
+    },
+    {
+      "type": "library",
+      "name": "OpenSSL-CPython",
+      "version": "3.5.9",
+      "bom-ref": "native:OpenSSL-CPython"
+    },
+    {
+      "type": "library",
+      "name": "OpenSSL-cryptography",
+      "version": "4.0.3",
+      "bom-ref": "native:OpenSSL-cryptography"
+    },
+    {
+      "type": "library",
+      "name": "Ollama-source",
+      "version": "2476d5ead197abe04629651028f83d48dc75d2b2",
+      "bom-ref": "native:Ollama-source"
+    },
+    {
+      "type": "library",
+      "name": "llama.cpp",
+      "version": "620d2225cc436ab0b001e3200e590e3b286ef9ab",
+      "bom-ref": "native:llama.cpp"
+    },
+    {
+      "type": "library",
+      "name": "MLX-C-official-payload",
+      "version": "a341b4925024b88b2c593468f16e12f5e17315da",
+      "bom-ref": "native:MLX-C-official-payload"
+    }
+  ]
+}

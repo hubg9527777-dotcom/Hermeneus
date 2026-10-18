@@ -506,6 +506,10 @@ public final class PipelineOrchestrator: ObservableObject {
     public let remoteBuffer = RollingTextBuffer(maxTurns: 9999)
     public let localBuffer = RollingTextBuffer(maxTurns: 9999)
     @Published public var isRunning: Bool = false
+    @Published public private(set) var startupError: String?
+    private var systemAudioLoop: Task<Void, Never>?
+    private var microphoneLoop: Task<Void, Never>?
+    private var sessionGeneration = UUID()
     @Published public var latencyMs: Int = 0
     @Published public var isTTSPlaying: Bool = false
     @Published public private(set) var remotePipelineState: PipelineState = .idle
@@ -533,7 +537,12 @@ public final class PipelineOrchestrator: ObservableObject {
             await contextEngine.generateContextPrompt(for: text)
         }
     )
-    private let tts = BlackHoleTTSEngine()
+    let tts = BlackHoleTTSEngine()
+    var speechOutputLabel: String {
+        let uid = tts.selectedDeviceUID
+        if uid == AudioOutputDevice.systemDefault { return "本机播放" }
+        return AudioOutputDevice.available().first(where: { $0.id == uid })?.name ?? "设备已断开"
+    }
     private var scheduler: ClauseSpeechScheduler?
     private let micBufferActor = MicAudioBuffer()
     private let remoteSegmenter = ContinuousStreamSegmenter(sampleRate: 48000)
@@ -633,6 +642,10 @@ public final class PipelineOrchestrator: ObservableObject {
         try meetingRecorder.stop()
     }
 
+    public func selectTranslationModel(_ name: String) async {
+        await translator.updateModel(to: name)
+    }
+
     public func startSession() async {
         guard !isRunning else { return }
         isRunning = true
@@ -645,31 +658,47 @@ public final class PipelineOrchestrator: ObservableObject {
             let warmed = await translator.warmUp()
             print(warmed ? "✅ 本地翻译模型预热完成" : "⚠️ 本地翻译模型预热未完成；首句仍会自动重试")
         }
-        AVCaptureDevice.requestAccess(for: .audio) { granted in
-            if granted {
-                Task { @MainActor in
-                    do {
-                        self.setupMicCallback()
-                        try self.micCapturer.startCapture()
-                    } catch {
-                        print("麦克风启动失败: \(error)")
-                    }
-                }
-            }
+        startupError = nil
+        let generation = UUID()
+        sessionGeneration = generation
+        let microphoneGranted = await AVCaptureDevice.requestAccess(for: .audio)
+        guard generation == sessionGeneration, isRunning else { return }
+        guard microphoneGranted else {
+            await stopSession()
+            startupError = "麦克风未获授权，请在系统设置中允许 Hermeneus 使用麦克风。"
+            return
         }
         do {
+            setupMicCallback()
+            try micCapturer.startCapture()
             try await systemCapturer.startCapture()
+            guard generation == sessionGeneration, isRunning else { return }
             startSystemAudioLoop()
             startMicAudioLoop()
             print("🚀 V3.0 WebSocket 流式同传系统已就绪！")
         } catch {
-            print("❌ 系统音频启动失败: \(error.localizedDescription)")
+            guard generation == sessionGeneration else { return }
+            await stopSession()
+            startupError = "音频启动失败：\(error.localizedDescription)。请检查麦克风及系统音频权限后重试。"
         }
     }
     
     public func stopSession() async {
         guard isRunning else { return }
         isRunning = false
+        sessionGeneration = UUID()
+        let oldSystemLoop = systemAudioLoop
+        let oldMicrophoneLoop = microphoneLoop
+        oldSystemLoop?.cancel()
+        oldMicrophoneLoop?.cancel()
+        systemAudioLoop = nil
+        microphoneLoop = nil
+        await oldSystemLoop?.value
+        await oldMicrophoneLoop?.value
+        await remoteSegmenter.reset()
+        await localSegmenter.reset()
+        _ = await micBufferActor.flush()
+        await tts.stopPlayout()
         // Finalize the mirror before capture engines stop, preserving the last received audio.
         if meetingRecorder.isRecording { _ = try? meetingRecorder.stop() }
         micCapturer.stopCapture()
@@ -695,6 +724,7 @@ public final class PipelineOrchestrator: ObservableObject {
         micCapturer.onAudioChunk = { [weak self] slice in
             guard let self else { return }
             Task { @MainActor in
+                guard self.isRunning else { return }
                 switch self.localInputMode {
                 case .automaticVAD:
                     if self.localCaptureState == .manualPressed {
@@ -714,15 +744,19 @@ public final class PipelineOrchestrator: ObservableObject {
     
     private func startSystemAudioLoop() {
         let segmenter = self.remoteSegmenter
-        Task.detached(priority: .userInitiated) { [weak self] in
-            while await self?.isRunning == true {
-                try? await Task.sleep(nanoseconds: 80_000_000)
+        systemAudioLoop?.cancel()
+        let generation = sessionGeneration
+        systemAudioLoop = Task.detached(priority: .userInitiated) { [weak self] in
+            while !Task.isCancelled {
+                guard await self?.isRunning == true else { break }
+                do { try await Task.sleep(nanoseconds: 80_000_000) } catch { break }
                 guard let self = self else { break }
                 let listening = await self.isListeningRemote
                 let ttsPlaying = await self.isTTSPlaying
                 if !listening || ttsPlaying {
                     _ = await self.systemCapturer.ringBuffer.readLatest(count: 9600)
                     Task { @MainActor in
+                        guard self.isRunning, self.sessionGeneration == generation else { return }
                         self.remoteAutoController.cancelActive()
                         self.invalidateRemotePreview()
                         self.releaseRemotePriority()
@@ -739,6 +773,7 @@ public final class PipelineOrchestrator: ObservableObject {
 
                 if wasActive || isActive {
                     Task { @MainActor in
+                        guard self.isRunning, self.sessionGeneration == generation else { return }
                         self.activateRemotePriority()
                         self.remoteAutoController.begin(language: "es")
                         self.remoteAutoController.feed(pcm: samples, sampleRate: 48000)
@@ -754,9 +789,12 @@ public final class PipelineOrchestrator: ObservableObject {
     private func startMicAudioLoop() {
         let bufferActor = self.micBufferActor
         let segmenter = self.localSegmenter
-        Task.detached(priority: .userInitiated) { [weak self] in
-            while await self?.isRunning == true {
-                try? await Task.sleep(nanoseconds: 80_000_000)
+        microphoneLoop?.cancel()
+        let generation = sessionGeneration
+        microphoneLoop = Task.detached(priority: .userInitiated) { [weak self] in
+            while !Task.isCancelled {
+                guard await self?.isRunning == true else { break }
+                do { try await Task.sleep(nanoseconds: 80_000_000) } catch { break }
                 guard let self = self else { break }
                 let mode = await self.localInputMode
                 guard mode == .automaticVAD else {
@@ -782,6 +820,7 @@ public final class PipelineOrchestrator: ObservableObject {
 
                 if wasActive || isActive {
                     Task { @MainActor in
+                        guard self.isRunning, self.sessionGeneration == generation else { return }
                         self.localStreamController.begin(language: "zh")
                         self.localStreamController.feed(pcm: pcmChunk, sampleRate: 48000)
                         if shouldFinish {
@@ -1102,7 +1141,7 @@ public final class PipelineOrchestrator: ObservableObject {
                         await contextEngine.observeTranslation(fullTrans)
                     }
                     self.isTTSPlaying = true
-                    try? await tts.speak(text: fullTrans, language: "es-ES")
+                    await speakOnSelectedDevice(fullTrans)
                     try? await Task.sleep(nanoseconds: 300_000_000)
                     self.isTTSPlaying = false
                 }
@@ -1114,6 +1153,12 @@ public final class PipelineOrchestrator: ObservableObject {
         }
     }
     
+    private func speakOnSelectedDevice(_ text: String) async {
+        do { try await tts.speak(text: text, language: "es-ES") }
+        catch is CancellationError { }
+        catch { localPipelineState = .failed("语音回传失败：\(error.localizedDescription)") }
+    }
+
     public func pressToTalkStart() {
         guard isRunning, !isRemotePriorityActive else {
             if isRemotePriorityActive { localPipelineState = .deferredForRemote }
@@ -1200,7 +1245,7 @@ public final class PipelineOrchestrator: ObservableObject {
     public func speakSpanishText(_ text: String) async {
         guard !text.isEmpty else { return }
         self.isTTSPlaying = true
-        try? await tts.speak(text: text, language: "es-ES")
+        await speakOnSelectedDevice(text)
         try? await Task.sleep(nanoseconds: 300_000_000)
         self.isTTSPlaying = false
     }
@@ -1209,7 +1254,7 @@ public final class PipelineOrchestrator: ObservableObject {
         guard let lastTurn = localBuffer.turns.last, !lastTurn.translatedText.isEmpty else { return }
         DispatchQueue.main.async { self.objectWillChange.send() }
         self.isTTSPlaying = true
-        try? await tts.speak(text: lastTurn.translatedText, language: "es-ES")
+        await speakOnSelectedDevice(lastTurn.translatedText)
         try? await Task.sleep(nanoseconds: 300_000_000)
         self.isTTSPlaying = false
     }

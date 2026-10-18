@@ -1,0 +1,5 @@
+-c constraints-security.txt
+sherpa-onnx==1.13.8+hermeneus.1
+numpy>=2.4.6,<3
+soundfile>=0.14.0,<0.15
+requests>=2.34.2,<3

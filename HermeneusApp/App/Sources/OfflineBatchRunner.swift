@@ -1,4 +1,18 @@
 import Foundation
+import AudioCore
+
+private final class BoundedWorkerError: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+    func append(_ chunk: Data) {
+        lock.lock(); defer { lock.unlock() }
+        data.append(chunk.prefix(max(0, 16384 - data.count)))
+    }
+    func text() -> String {
+        lock.lock(); defer { lock.unlock() }
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+}
 
 @MainActor
 final class OfflineBatchRunner: ObservableObject {
@@ -46,35 +60,51 @@ final class OfflineBatchRunner: ObservableObject {
         dualTracks: (local: URL, remote: URL)? = nil
     ) throws {
         guard !isRunning else { return }
+        guard process?.isRunning != true else {
+            throw NSError(domain: "HermeneusBatch", code: 3, userInfo: [NSLocalizedDescriptionKey: "上一任务仍在退出，请稍候重试。"])
+        }
         let launch = try resolveWorkerLaunch(needsDiarization: diarization)
         let jobID = UUID().uuidString.lowercased()
         let process = Process()
         process.executableURL = launch.executableURL
-        var arguments = launch.baseArguments + ["--secure-root", secureRoot.path, "--job-id", jobID, "--model", modelName]
+        var arguments = launch.baseArguments + ["--secure-root", secureRoot.path, "--job-id", jobID, "--model", modelName, "--ollama-url", LocalServiceAccess.ollamaBaseURL.appendingPathComponent("api/generate").absoluteString]
         if let dualTracks {
             arguments += ["--local-input", dualTracks.local.path, "--remote-input", dualTracks.remote.path]
         } else {
             arguments += ["--input", inputURL.path]
         }
-        if diarization { arguments += ["--diarization"] + launch.diarizerArguments }
+        if diarization { arguments += ["--diarization", "--allow-model-download"] + launch.diarizerArguments }
         process.arguments = arguments
-        // pyannote 4 uses torchcodec, whose packaged macOS bridge loads the
-        // local FFmpeg dylibs. Homebrew uses one of these standard prefixes.
+        // Media decoding uses the bundled private FFmpeg runtime.
         var environment = ProcessInfo.processInfo.environment
-        let ffmpegLibraryDirectories = ["/opt/homebrew/opt/ffmpeg/lib", "/usr/local/opt/ffmpeg/lib"]
+        let bundledFFmpeg = Bundle.main.resourceURL?.appendingPathComponent("ffmpeg", isDirectory: true)
+        if let bundledFFmpeg {
+            environment["PATH"] = bundledFFmpeg.path + ":" + (environment["PATH"] ?? "/usr/bin:/bin")
+        }
+        let ffmpegLibraryDirectories = [bundledFFmpeg?.appendingPathComponent("lib").path ?? "",
+            "/opt/homebrew/opt/ffmpeg/lib", "/usr/local/opt/ffmpeg/lib"]
             .filter { FileManager.default.fileExists(atPath: $0) }
         if !ffmpegLibraryDirectories.isEmpty {
             let inherited = environment["DYLD_FALLBACK_LIBRARY_PATH"].map { ":\($0)" } ?? ""
             environment["DYLD_FALLBACK_LIBRARY_PATH"] = ffmpegLibraryDirectories.joined(separator: ":") + inherited
         }
+        environment["HERMENEUS_OLLAMA_TOKEN"] = LocalServiceAccess.token
+        environment["HERMENEUS_OLLAMA_PORT"] = String(LocalServiceAccess.ollamaPort)
+        environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
+        environment["ORT_DISABLE_TELEMETRY"] = "1"
         process.environment = environment
 
         let stderr = Pipe()
+        let errors = BoundedWorkerError()
+        stderr.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty { errors.append(data) }
+        }
         process.standardError = stderr
-        process.standardOutput = Pipe()
+        process.standardOutput = FileHandle.nullDevice
         process.terminationHandler = { [weak self] task in
-            let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
-            let errorText = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            stderr.fileHandleForReading.readabilityHandler = nil
+            let errorText = errors.text()
             Task { @MainActor [weak self] in
                 self?.finish(task: task, errorText: errorText, root: secureRoot, jobID: jobID)
             }
@@ -124,7 +154,7 @@ final class OfflineBatchRunner: ObservableObject {
         progressTimer?.invalidate()
         progressTimer = nil
         state = .cancelled
-        statusMessage = "已请求取消；已完成检查点保留在加密卷。"
+        statusMessage = "已请求取消；已完成检查点保留在所选目录。"
     }
 
     private func startProgressPolling(root: URL, jobID: String) {
@@ -143,6 +173,7 @@ final class OfflineBatchRunner: ObservableObject {
     }
 
     private func finish(task: Process, errorText: String, root: URL, jobID: String) {
+        guard process === task else { return }
         progressTimer?.invalidate()
         progressTimer = nil
         process = nil
@@ -153,7 +184,7 @@ final class OfflineBatchRunner: ObservableObject {
             exportDirectory = root.appendingPathComponent("Hermeneus Data/exports/\(jobID)")
         } else {
             state = .failed(errorText.isEmpty ? "本地工作器退出码 \(task.terminationStatus)" : errorText)
-            statusMessage = "工作器失败；检查加密卷中的 jobs 目录以获取检查点。"
+            statusMessage = "工作器失败；检查所选目录中的 jobs 目录以获取检查点。"
         }
     }
 }

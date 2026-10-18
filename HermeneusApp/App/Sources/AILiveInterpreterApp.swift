@@ -1,22 +1,70 @@
 import SwiftUI
 import AppKit
 
+@MainActor
+private final class AppPresentationState: ObservableObject {
+    @Published var showAudioReturn = false
+}
+
 @main
 struct AILiveInterpreterApp: App {
+    @StateObject private var presentation = AppPresentationState()
     @StateObject private var orchestrator = PipelineOrchestrator()
+    @StateObject private var setup = SetupAssistant()
     @StateObject private var offlineTools = OfflineToolsPrototypeController()
 
     var body: some Scene {
         WindowGroup("Hermeneus", id: "live-interpreter") {
-            SubtitleView(
-                orchestrator: orchestrator,
-                offlineTools: offlineTools
-            )
-            .background(WindowAccessor())
-            .onAppear { Task { await orchestrator.startSession() } }
+            Group {
+                if setup.ready {
+                    SubtitleView(orchestrator: orchestrator, offlineTools: offlineTools)
+                        .background(WindowAccessor())
+                        .task {
+                            await orchestrator.selectTranslationModel(setup.selectedModel)
+                            await orchestrator.startSession()
+                            if let error = orchestrator.startupError {
+                                setup.problem = error
+                                setup.ready = false
+                            }
+                        }
+                } else {
+                    SetupAssistantView(setup: setup, begin: {
+                        UserDefaults.standard.set(true, forKey: "Hermeneus.SetupCompleted")
+                        setup.ready = true
+                    }, configureAudio: { presentation.showAudioReturn = true })
+                }
+            }
+            .sheet(isPresented: $presentation.showAudioReturn) {
+                AudioReturnView(engine: orchestrator.tts) {
+                    presentation.showAudioReturn = false
+                    orchestrator.objectWillChange.send()
+                    if !setup.busy { setup.run(download: false, autoEnter: true) }
+                }
+            }
+            .task { setup.checkOnLaunch() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in setup.shutdown() }
         }
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
+        .commands {
+            CommandMenu("安装与模型") {
+                Button("语音回传设备…") {
+                    Task {
+                        await orchestrator.stopSession()
+                        setup.ready = false
+                        presentation.showAudioReturn = true
+                    }
+                }.disabled(setup.busy)
+                Button("安装检查 / 切换翻译模型…") {
+                    Task {
+                        await orchestrator.stopSession()
+                        setup.ready = false
+                        setup.run(download: false)
+                    }
+                }
+                .disabled(setup.busy)
+            }
+        }
 
         Window("离线工具", id: "offline-tools") {
             OfflineToolsPrototypeView(

@@ -1,0 +1,412 @@
+[
+  {
+    "name": "github.com/TheTitanrain/w32",
+    "version": "v0.0.0-20180517000239-4f5cfb03fabf",
+    "direct": true
+  },
+  {
+    "name": "github.com/containerd/console",
+    "version": "v1.0.3",
+    "direct": true
+  },
+  {
+    "name": "github.com/gin-gonic/gin",
+    "version": "v1.12.0",
+    "direct": true
+  },
+  {
+    "name": "github.com/google/go-cmp",
+    "version": "v0.7.0",
+    "direct": true
+  },
+  {
+    "name": "github.com/google/uuid",
+    "version": "v1.6.0",
+    "direct": true
+  },
+  {
+    "name": "github.com/ledongthuc/pdf",
+    "version": "v0.0.0-20250511090121-5959a4027728",
+    "direct": true
+  },
+  {
+    "name": "github.com/mattn/go-sqlite3",
+    "version": "v1.14.52",
+    "direct": true
+  },
+  {
+    "name": "github.com/olekukonko/tablewriter",
+    "version": "v0.0.5",
+    "direct": true
+  },
+  {
+    "name": "github.com/spf13/cobra",
+    "version": "v1.7.0",
+    "direct": true
+  },
+  {
+    "name": "github.com/stretchr/testify",
+    "version": "v1.11.1",
+    "direct": true
+  },
+  {
+    "name": "github.com/x448/float16",
+    "version": "v0.8.4",
+    "direct": true
+  },
+  {
+    "name": "golang.org/x/sync",
+    "version": "v0.23.0",
+    "direct": true
+  },
+  {
+    "name": "golang.org/x/sys",
+    "version": "v0.48.0",
+    "direct": true
+  },
+  {
+    "name": "github.com/agnivade/levenshtein",
+    "version": "v1.1.1",
+    "direct": true
+  },
+  {
+    "name": "github.com/charmbracelet/bubbletea",
+    "version": "v1.3.10",
+    "direct": true
+  },
+  {
+    "name": "github.com/charmbracelet/lipgloss",
+    "version": "v1.1.0",
+    "direct": true
+  },
+  {
+    "name": "github.com/d4l3k/go-bfloat16",
+    "version": "v0.0.0-20211005043715-690c3bdd05f1",
+    "direct": true
+  },
+  {
+    "name": "github.com/emirpasic/gods/v2",
+    "version": "v2.0.0-alpha",
+    "direct": true
+  },
+  {
+    "name": "github.com/klauspost/compress",
+    "version": "v1.18.7",
+    "direct": true
+  },
+  {
+    "name": "github.com/mattn/go-runewidth",
+    "version": "v0.0.16",
+    "direct": true
+  },
+  {
+    "name": "github.com/pelletier/go-toml/v2",
+    "version": "v2.2.4",
+    "direct": true
+  },
+  {
+    "name": "github.com/pkg/browser",
+    "version": "v0.0.0-20240102092130-5ac0b6a4141c",
+    "direct": true
+  },
+  {
+    "name": "github.com/tkrajina/typescriptify-golang-structs",
+    "version": "v0.2.0",
+    "direct": true
+  },
+  {
+    "name": "github.com/tree-sitter/go-tree-sitter",
+    "version": "v0.25.0",
+    "direct": true
+  },
+  {
+    "name": "github.com/tree-sitter/tree-sitter-cpp",
+    "version": "v0.23.4",
+    "direct": true
+  },
+  {
+    "name": "github.com/wk8/go-ordered-map/v2",
+    "version": "v2.1.8",
+    "direct": true
+  },
+  {
+    "name": "go.yaml.in/yaml/v3",
+    "version": "v3.0.4",
+    "direct": true
+  },
+  {
+    "name": "golang.org/x/image",
+    "version": "v0.45.0",
+    "direct": true
+  },
+  {
+    "name": "golang.org/x/mod",
+    "version": "v0.41.0",
+    "direct": true
+  },
+  {
+    "name": "github.com/aymanbagabas/go-osc52/v2",
+    "version": "v2.0.1",
+    "direct": false
+  },
+  {
+    "name": "github.com/bahlo/generic-list-go",
+    "version": "v0.2.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/buger/jsonparser",
+    "version": "v1.1.2",
+    "direct": false
+  },
+  {
+    "name": "github.com/bytedance/gopkg",
+    "version": "v0.1.3",
+    "direct": false
+  },
+  {
+    "name": "github.com/bytedance/sonic/loader",
+    "version": "v0.5.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/charmbracelet/colorprofile",
+    "version": "v0.2.3-0.20250311203215-f60798e515dc",
+    "direct": false
+  },
+  {
+    "name": "github.com/charmbracelet/x/ansi",
+    "version": "v0.10.1",
+    "direct": false
+  },
+  {
+    "name": "github.com/charmbracelet/x/cellbuf",
+    "version": "v0.0.13-0.20250311204145-2c3ea96c31dd",
+    "direct": false
+  },
+  {
+    "name": "github.com/charmbracelet/x/term",
+    "version": "v0.2.1",
+    "direct": false
+  },
+  {
+    "name": "github.com/cloudwego/base64x",
+    "version": "v0.1.6",
+    "direct": false
+  },
+  {
+    "name": "github.com/davecgh/go-spew",
+    "version": "v1.1.1",
+    "direct": false
+  },
+  {
+    "name": "github.com/erikgeiser/coninput",
+    "version": "v0.0.0-20211004153227-1c3628e74d0f",
+    "direct": false
+  },
+  {
+    "name": "github.com/goccy/go-yaml",
+    "version": "v1.19.2",
+    "direct": false
+  },
+  {
+    "name": "github.com/lucasb-eyer/go-colorful",
+    "version": "v1.2.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/mailru/easyjson",
+    "version": "v0.7.7",
+    "direct": false
+  },
+  {
+    "name": "github.com/mattn/go-localereader",
+    "version": "v0.0.2-0.20220822084737-6bae6c923850",
+    "direct": false
+  },
+  {
+    "name": "github.com/mattn/go-pointer",
+    "version": "v0.0.1",
+    "direct": false
+  },
+  {
+    "name": "github.com/muesli/ansi",
+    "version": "v0.0.0-20230316100256-276c6243b2f6",
+    "direct": false
+  },
+  {
+    "name": "github.com/muesli/cancelreader",
+    "version": "v0.2.2",
+    "direct": false
+  },
+  {
+    "name": "github.com/muesli/termenv",
+    "version": "v0.16.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/pmezard/go-difflib",
+    "version": "v1.0.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/quic-go/qpack",
+    "version": "v0.6.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/quic-go/quic-go",
+    "version": "v0.59.1",
+    "direct": false
+  },
+  {
+    "name": "github.com/rivo/uniseg",
+    "version": "v0.4.7",
+    "direct": false
+  },
+  {
+    "name": "github.com/tkrajina/go-reflector",
+    "version": "v0.5.5",
+    "direct": false
+  },
+  {
+    "name": "github.com/xo/terminfo",
+    "version": "v0.0.0-20220910002029-abceb7e1c41e",
+    "direct": false
+  },
+  {
+    "name": "go.mongodb.org/mongo-driver/v2",
+    "version": "v2.5.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/bytedance/sonic",
+    "version": "v1.15.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/gabriel-vasile/mimetype",
+    "version": "v1.4.12",
+    "direct": false
+  },
+  {
+    "name": "github.com/gin-contrib/cors",
+    "version": "v1.7.2",
+    "direct": true
+  },
+  {
+    "name": "github.com/gin-contrib/sse",
+    "version": "v1.1.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/go-playground/locales",
+    "version": "v0.14.1",
+    "direct": false
+  },
+  {
+    "name": "github.com/go-playground/universal-translator",
+    "version": "v0.18.1",
+    "direct": false
+  },
+  {
+    "name": "github.com/go-playground/validator/v10",
+    "version": "v10.30.1",
+    "direct": false
+  },
+  {
+    "name": "github.com/goccy/go-json",
+    "version": "v0.10.5",
+    "direct": false
+  },
+  {
+    "name": "github.com/inconshreveable/mousetrap",
+    "version": "v1.1.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/json-iterator/go",
+    "version": "v1.1.12",
+    "direct": false
+  },
+  {
+    "name": "github.com/klauspost/cpuid/v2",
+    "version": "v2.3.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/leodido/go-urn",
+    "version": "v1.4.0",
+    "direct": false
+  },
+  {
+    "name": "github.com/mattn/go-isatty",
+    "version": "v0.0.20",
+    "direct": false
+  },
+  {
+    "name": "github.com/modern-go/concurrent",
+    "version": "v0.0.0-20180306012644-bacd9c7ef1dd",
+    "direct": false
+  },
+  {
+    "name": "github.com/modern-go/reflect2",
+    "version": "v1.0.2",
+    "direct": false
+  },
+  {
+    "name": "github.com/spf13/pflag",
+    "version": "v1.0.5",
+    "direct": false
+  },
+  {
+    "name": "github.com/twitchyliquid64/golang-asm",
+    "version": "v0.15.1",
+    "direct": false
+  },
+  {
+    "name": "github.com/ugorji/go/codec",
+    "version": "v1.3.1",
+    "direct": false
+  },
+  {
+    "name": "golang.org/x/arch",
+    "version": "v0.22.0",
+    "direct": false
+  },
+  {
+    "name": "golang.org/x/crypto",
+    "version": "v0.57.0",
+    "direct": true
+  },
+  {
+    "name": "golang.org/x/exp",
+    "version": "v0.0.0-20250218142911-aa4b98e5adaa",
+    "direct": false
+  },
+  {
+    "name": "golang.org/x/net",
+    "version": "v0.60.0",
+    "direct": false
+  },
+  {
+    "name": "golang.org/x/term",
+    "version": "v0.46.0",
+    "direct": true
+  },
+  {
+    "name": "golang.org/x/text",
+    "version": "v0.42.0",
+    "direct": true
+  },
+  {
+    "name": "google.golang.org/protobuf",
+    "version": "v1.36.10",
+    "direct": false
+  },
+  {
+    "name": "gopkg.in/yaml.v3",
+    "version": "v3.0.1",
+    "direct": false
+  }
+]

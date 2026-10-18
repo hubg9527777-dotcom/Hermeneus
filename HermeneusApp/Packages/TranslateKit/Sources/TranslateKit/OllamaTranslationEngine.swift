@@ -1,4 +1,5 @@
 import Foundation
+import AudioCore
 
 public actor OllamaTranslationEngine: TranslationEngine {
     private let endpoint: URL
@@ -13,7 +14,7 @@ public actor OllamaTranslationEngine: TranslationEngine {
     private let contextPromptProvider: (@Sendable (_ text: String) async -> String)?
 
     public init(
-        endpoint: URL = URL(string: "http://localhost:11434/api/generate")!,
+        endpoint: URL = LocalServiceAccess.ollamaBaseURL.appendingPathComponent("api/generate"),
         // 改动 2：默认值改为 "qwen2.5:3b"，仅作为“探测/调用方都没配置时”的
         // 最终兜底。正常路径下，App 启动时应该由 OllamaModelManager.resolvePreferredModel()
         // 决定真正使用的模型，再通过 updateModel(_:) 或下面的 init 参数注入，
@@ -47,6 +48,7 @@ public actor OllamaTranslationEngine: TranslationEngine {
     /// prompt is not displayed, translated, added to context, or persisted.
     public func warmUp() async -> Bool {
         var request = URLRequest(url: endpoint)
+        LocalServiceAccess.authorizeOllama(&request)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = min(requestTimeout, 20.0)
@@ -59,7 +61,7 @@ public actor OllamaTranslationEngine: TranslationEngine {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return false }
         request.httpBody = data
-        guard let (_, response) = try? await URLSession.shared.data(for: request),
+        guard let (_, response) = try? await LocalServiceAccess.session.data(for: request),
               let http = response as? HTTPURLResponse else {
             return false
         }
@@ -92,7 +94,7 @@ public actor OllamaTranslationEngine: TranslationEngine {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    let (bytes, response) = try await LocalServiceAccess.session.bytes(for: request)
                     guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                         continuation.finish(throwing: NSError(
                             domain: "OllamaError",
@@ -102,22 +104,15 @@ public actor OllamaTranslationEngine: TranslationEngine {
                         return
                     }
 
-                    var fullText = ""
-                        
-                        for try await line in bytes.lines {
-                            guard let data = line.data(using: .utf8),
-                                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                                  let responseToken = json["response"] as? String, !responseToken.isEmpty else { continue }
-                            
-                            // 极简流式解析，抛弃所有死板的标签等待，直接渲染文字！
-                            let tokenToUse = responseToken.replacingOccurrences(of: "[备选]", with: "\n(备选：").replacingOccurrences(of: "备选：", with: "\n(备选：")
-                            fullText += tokenToUse
-                            continuation.yield(.delta(tokenToUse))
+                    var state = OllamaStreamState()
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        if let token = try state.consume(line) {
+                            continuation.yield(.delta(token))
                         }
-                        
-                        let trimmedFinal = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        continuation.yield(.final(trimmedFinal))
-                        continuation.finish()
+                    }
+                    continuation.yield(.final(try state.finalText()))
+                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -132,6 +127,7 @@ public actor OllamaTranslationEngine: TranslationEngine {
     
     private func buildOllamaRequest(prompt: String) throws -> URLRequest {
         var request = URLRequest(url: endpoint)
+        LocalServiceAccess.authorizeOllama(&request)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = requestTimeout

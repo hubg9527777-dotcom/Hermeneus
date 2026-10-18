@@ -1,0 +1,27 @@
+--- a/src/ima_adpcm.c
++++ b/src/ima_adpcm.c
+@@ -164,7 +164,7 @@
+ 		if (pima->samplecount && pima->samplecount < pima->samplesperblock)
+ 			pima->encode_block (psf, pima) ;
+ 
+-		psf->sf.frames = pima->samplesperblock * pima->blockcount / psf->sf.channels ;
++		psf->sf.frames = (sf_count_t) pima->samplesperblock * pima->blockcount / psf->sf.channels ;
+ 		} ;
+ 
+ 	return 0 ;
+@@ -232,13 +232,13 @@
+ 
+ 				pima->decode_block = wavlike_ima_decode_block ;
+ 
+-				psf->sf.frames = pima->samplesperblock * pima->blocks ;
++				psf->sf.frames = (sf_count_t) pima->samplesperblock * pima->blocks ;
+ 				break ;
+ 
+ 		case SF_FORMAT_AIFF :
+ 				psf_log_printf (psf, "still need to check block count\n") ;
+ 				pima->decode_block = aiff_ima_decode_block ;
+-				psf->sf.frames = pima->samplesperblock * pima->blocks / pima->channels ;
++				psf->sf.frames = (sf_count_t) pima->samplesperblock * pima->blocks / pima->channels ;
+ 				break ;
+ 
+ 		default :

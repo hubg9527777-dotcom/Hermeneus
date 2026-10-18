@@ -20,7 +20,7 @@ enum OfflineRecordingError: LocalizedError {
         switch self {
         case .alreadyRecording: return "录音已经在进行中。"
         case .notRecording: return "当前没有正在进行的录音。"
-        case .storageUnavailable: return "加密卷目录不可访问或不可写。"
+        case .storageUnavailable: return "所选存储目录不可访问或不可写。"
         }
     }
 }
@@ -208,7 +208,11 @@ final class OfflineDualTrackRecorder: ObservableObject {
             .appendingPathComponent("recordings", isDirectory: true)
             .appendingPathComponent("\(ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-"))_\(id)", isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let rootPath = rootURL.resolvingSymlinksInPath().path + "/"
+            guard directory.resolvingSymlinksInPath().path.hasPrefix(rootPath) else {
+                throw OfflineRecordingError.storageUnavailable
+            }
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let local = PCMTrackWriter(finalURL: directory.appendingPathComponent("local.wav"))
             let remote = PCMTrackWriter(finalURL: directory.appendingPathComponent("remote.wav"))
             localWriter = local
@@ -412,7 +416,11 @@ final class LiveMeetingDualTrackRecorder: ObservableObject {
             .appendingPathComponent("recordings", isDirectory: true)
             .appendingPathComponent("meeting_\(ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-"))_\(id)", isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let rootPath = rootURL.resolvingSymlinksInPath().path + "/"
+            guard directory.resolvingSymlinksInPath().path.hasPrefix(rootPath) else {
+                throw OfflineRecordingError.storageUnavailable
+            }
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let local = BoundedPCMTrackWriter(finalURL: directory.appendingPathComponent("local.wav"), label: "Hermeneus.meeting.local")
             let remote = BoundedPCMTrackWriter(finalURL: directory.appendingPathComponent("remote.wav"), label: "Hermeneus.meeting.remote")
             self.microphone = microphone

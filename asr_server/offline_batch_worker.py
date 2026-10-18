@@ -5,7 +5,7 @@
 Single-speaker jobs process one local media file as Spanish -> Simplified Chinese.
 Dual-speaker jobs are intentionally limited to Hermeneus paired recordings.  Their
 independent microphone and system-audio tracks supply deterministic speaker identity,
-so no cloud access or pyannote diarization is required.
+so no cloud access or anonymous diarization is required.
 """
 from __future__ import annotations
 
@@ -22,6 +22,11 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from asr_security import local_ollama_url
+from secure_paths import contained, job_identifier, atomic_private_text
+
+HTTP = requests.Session()
+HTTP.trust_env = False
 from faster_whisper import WhisperModel
 
 
@@ -30,9 +35,7 @@ def now() -> str:
 
 
 def atomic_json(path: Path, payload: dict[str, Any]) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    temporary.replace(path)
+    atomic_private_text(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def write_progress(path: Path, *, state: str, completed: int, total: int | None, message: str = "") -> None:
@@ -54,36 +57,28 @@ def seconds_to_srt(seconds: float, separator: str = ",") -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}{separator}{milliseconds:03d}"
 
 
+def ollama_headers(ollama_url: str) -> dict[str, str]:
+    local_ollama_url(ollama_url)
+    from urllib.parse import urlsplit
+    capability = os.environ.get("HERMENEUS_OLLAMA_TOKEN", "")
+    port = os.environ.get("HERMENEUS_OLLAMA_PORT", "")
+    if capability and str(urlsplit(ollama_url).port) == port:
+        return {"Authorization": "Bearer " + capability}
+    return {}
+
+
 def ensure_local_ollama(model: str, ollama_url: str) -> None:
+    local_ollama_url(ollama_url)
     tags_url = ollama_url.rsplit("/api/", 1)[0] + "/api/tags"
     try:
-        response = requests.get(tags_url, timeout=2)
+        response = HTTP.get(tags_url, headers=ollama_headers(ollama_url), timeout=2, allow_redirects=False)
         response.raise_for_status()
-    except requests.RequestException:
-        binary = shutil.which("ollama")
-        if not binary:
-            raise RuntimeError("未找到 Ollama。请先按安装指南安装命令行版 Ollama。")
-        env = os.environ.copy()
-        for candidate in ("/Volumes/untitled/APP/ollama models", "/Volumes/Hermeneus/ollama models"):
-            if os.path.isdir(candidate):
-                env["OLLAMA_MODELS"] = candidate
-                break
-        subprocess.Popen([binary, "serve"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        deadline = time.monotonic() + 20
-        last_error: Exception | None = None
-        while time.monotonic() < deadline:
-            try:
-                response = requests.get(tags_url, timeout=2)
-                response.raise_for_status()
-                break
-            except requests.RequestException as exc:
-                last_error = exc
-                time.sleep(0.5)
-        else:
-            raise RuntimeError(f"无法启动本机 Ollama：{last_error}")
-    available = {str(item.get("name", "")) for item in response.json().get("models", [])}
-    if model not in available and not any(name.split(":", 1)[0] == model.split(":", 1)[0] for name in available):
-        raise RuntimeError(f"本机 Ollama 未找到模型 {model}。请先执行：ollama pull {model}")
+    except requests.RequestException as exc:
+        raise RuntimeError("本机翻译服务未就绪，请打开 Hermeneus 的安装检查后重试。") from exc
+    available = {str(item.get("name", "")) for item in response.json().get("models", [])
+                 if not item.get("remote_host") and not str(item.get("name", "")).endswith((':cloud', '-cloud'))}
+    if model not in available:
+        raise RuntimeError("所选本地翻译模型不可用。请回到安装与模型设置中选择并准备模型。")
 
 
 def translate_local(text: str, model: str, ollama_url: str, source_language: str, target_language: str) -> str:
@@ -94,8 +89,10 @@ def translate_local(text: str, model: str, ollama_url: str, source_language: str
         "不要添加解释、标题、引号或原文。保留人名、数字、专有名词与不确定信息。\n\n"
         f"{source_language}：{text.strip()}"
     )
-    response = requests.post(
+    local_ollama_url(ollama_url)
+    response = HTTP.post(
         ollama_url,
+        headers=ollama_headers(ollama_url),
         json={
             "model": model,
             "prompt": prompt,
@@ -104,6 +101,7 @@ def translate_local(text: str, model: str, ollama_url: str, source_language: str
             "keep_alive": "30m",
         },
         timeout=(5, 300),
+        allow_redirects=False,
     )
     response.raise_for_status()
     translated = str(response.json().get("response") or "").strip()
@@ -125,7 +123,7 @@ def speaker_for(start: float, end: float, turns: list[dict[str, Any]]) -> str:
 
 def run_diarization(args: argparse.Namespace, source: Path, job_dir: Path) -> list[dict[str, Any]]:
     output = job_dir / "diarization.json"
-    model_dir = Path(args.secure_root).expanduser().resolve() / "Hermeneus Data" / "model-cache" / "pyannote-community-1"
+    model_dir = contained(Path(args.secure_root).expanduser(), "Hermeneus Data", "model-cache", "onnx-diarization-v1")
     if args.diarization_executable:
         command = [args.diarization_executable]
     else:
@@ -133,7 +131,10 @@ def run_diarization(args: argparse.Namespace, source: Path, job_dir: Path) -> li
     command += [
         "--input", str(source), "--output", str(output),
         "--model-dir", str(model_dir), "--num-speakers", "2",
+        "--progress-file", str(job_dir / "progress.json"),
     ]
+    if args.allow_model_download:
+        command.append("--allow-model-download")
     completed = subprocess.run(command, capture_output=True, text=True, timeout=3600)
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip()
@@ -213,7 +214,7 @@ def export_results(records: list[dict[str, Any]], exports: Path, stem: str, titl
         source = str(item["source_text"])
         translated = str(item["translation_text"])
         lines.extend([f"{start_time}  {speaker}", f"{source_label}：{source}", f"{target_label}：{translated}", ""])
-    (exports / f"{stem}_双语记录.txt").write_text("\n".join(lines), encoding="utf-8")
+    atomic_private_text(exports / f"{stem}_双语记录.txt", "\n".join(lines))
 
 def run(args: argparse.Namespace) -> int:
     root = Path(args.secure_root).expanduser().resolve(strict=True)
@@ -228,10 +229,12 @@ def run(args: argparse.Namespace) -> int:
     source = Path(args.input).expanduser().resolve(strict=True) if args.input else None
     local = Path(args.local_input).expanduser().resolve(strict=True) if dual else None
     remote = Path(args.remote_input).expanduser().resolve(strict=True) if dual else None
-    job_id = args.job_id or str(uuid.uuid4())
-    job_dir = root / "Hermeneus Data" / "jobs" / job_id
-    export_dir = root / "Hermeneus Data" / "exports" / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
+    os.umask(0o077)
+    local_ollama_url(args.ollama_url)
+    job_id = job_identifier(args.job_id)
+    job_dir = contained(root, "Hermeneus Data", "jobs", job_id)
+    export_dir = contained(root, "Hermeneus Data", "exports", job_id)
+    job_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
     checkpoint = job_dir / "transcript.jsonl"
     progress = job_dir / "progress.json"
     manifest = job_dir / "job.json"
@@ -244,7 +247,9 @@ def run(args: argparse.Namespace) -> int:
         "remote_track": remote.name if remote else None,
         "source_file_name": source.name if source else None,
         "model": args.model,
-        "network_used": False,
+        "network_used": None if args.diarization else False,
+        "audio_uploaded": False,
+        "model_download_may_use_network": bool(args.diarization),
         "created_at": now(),
     })
     write_progress(progress, state="preflight", completed=0, total=None, message="正在检查本机 Ollama 与翻译模型")
@@ -272,7 +277,7 @@ def run(args: argparse.Namespace) -> int:
         title = "双方录音 · 对方说（西语→中文）与我说（中文→西语）"
     else:
         if args.diarization:
-            write_progress(progress, state="diarizing", completed=0, total=None, message="正在本机匿名区分说话人 A / B；首次会下载模型到加密卷")
+            write_progress(progress, state="diarizing", completed=0, total=None, message="正在本机匿名区分说话人 A / B；无需账号；首次按确认下载模型到所选目录")
             speaker_turns = run_diarization(args, source, job_dir)
             role = "说话人 A"
             progress_message = "正在转写并翻译普通混音（匿名说话人 A / B）"
@@ -294,12 +299,11 @@ def run(args: argparse.Namespace) -> int:
             stem = source.stem + "_西中双语"
             title = stem + " · 单人说话"
 
-    with checkpoint.open("w", encoding="utf-8") as handle:
-        for index, record in enumerate(sorted(records, key=lambda item: (item["start"], item["track_order"])), start=1):
-            record["index"] = index
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
+    checkpoint_lines = []
+    for index, record in enumerate(sorted(records, key=lambda item: (item["start"], item["track_order"])), start=1):
+        record["index"] = index
+        checkpoint_lines.append(json.dumps(record, ensure_ascii=False))
+    atomic_private_text(checkpoint, "\n".join(checkpoint_lines) + "\n")
     export_results(records, export_dir, stem, title)
     write_progress(progress, state="completed", completed=len(records), total=len(records), message="已完成本地双向转写、翻译和字幕导出")
     return 0
@@ -316,6 +320,7 @@ def main() -> int:
     parser.add_argument("--model", default="qwen2.5:3b")
     parser.add_argument("--ollama-url", default="http://127.0.0.1:11434/api/generate")
     parser.add_argument("--diarization", action="store_true")
+    parser.add_argument("--allow-model-download", action="store_true")
     parser.add_argument("--diarization-python", default=str(Path.home() / "Library/Application Support/Hermeneus/diarization-venv/bin/python"))
     parser.add_argument("--diarization-worker", default=str(Path(__file__).with_name("offline_diarization_worker.py")))
     parser.add_argument("--diarization-executable", default="")

@@ -21,7 +21,7 @@ public actor WebSocketASREngine: ASREngine, StreamingASREngine {
     private var currentSession: WebSocketStreamingSession?
 
     /// serverURL 默认走 8081 端口的 WebSocket 服务（对应 server.py 里的 WS_PORT）。
-    public init(wsURL: URL = URL(string: "ws://localhost:8081/ws/asr")!) {
+    public init(wsURL: URL = LocalServiceAccess.asrWSURL) {
         self.wsURL = wsURL
     }
 
@@ -96,8 +96,10 @@ public actor WebSocketStreamingSession: ASRStreamingSession {
 
     /// 建立 WebSocket 连接，并立即发送 start 命令，告知服务端本次会话的语言。
     func connectAndStart() {
-        let session = URLSession(configuration: .default)
-        let wsTask = session.webSocketTask(with: wsURL)
+        let session = LocalServiceAccess.session
+        var request = URLRequest(url: wsURL)
+        LocalServiceAccess.authorize(&request)
+        let wsTask = session.webSocketTask(with: request)
         self.task = wsTask
         wsTask.resume()
 

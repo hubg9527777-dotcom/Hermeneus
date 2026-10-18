@@ -1,52 +1,53 @@
 name: Build M-Chip DMG
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
   build-macOS-arm64:
     runs-on: macos-14
     permissions:
-      contents: write
+      contents: read
       id-token: write
       attestations: write
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Resolve Version String
         id: version
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+              echo "Unsupported release tag" >&2
+              exit 1
+            fi
             echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "VERSION=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            VERSION="$(cat VERSION)"
+            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
+
+      - name: Enforce release security review
+        run: python scripts/check_release_security.py
 
       - name: Install Python Dependencies
         run: |
           set -e
-          python -m pip install --upgrade pip
-
-          # 关键修复：setuptools>=70.0.0 重构了 pkg_resources，移除了
-          # NullProvider / pkg_resources.extern 等 API，PyInstaller 内置的
-          # pyi_rth_pkgres 运行时钩子仍依赖这些旧 API，二者组合会导致打包出的
-          # 二进制在启动阶段直接崩溃（AttributeError: NullProvider）。
-          # 69.5.1 是社区验证过的最后一个兼容版本，锁死它。
-          pip install "setuptools==69.5.1" wheel
+          export PIP_CONSTRAINT="$GITHUB_WORKSPACE/constraints-security.txt"
+          python -m pip install --upgrade "pip>=26.2,<27" "setuptools>=83,<84" wheel
 
           if [ -f "asr_server/requirements.txt" ]; then
             REQ_FILE="asr_server/requirements.txt"
@@ -57,15 +58,21 @@ jobs:
             exit 1
           fi
           echo "📦 使用依赖文件: $REQ_FILE"
-          pip install "pyinstaller>=6.20,<7" "pyinstaller-hooks-contrib>=2026.1" -r "$REQ_FILE"
+          pip install "pyinstaller>=6.22.1,<7" "pyinstaller-hooks-contrib>=2026.7" -r "$REQ_FILE"
 
-          # 二次断言：torch / funasr / modelscope 这类重型依赖的安装过程有时会
-          # 通过 build-system 依赖间接把 setuptools 悄悄升级回 70+，
-          # 在打包前强制拉回 69.5.1 并打印版本，避免"本地能过、CI 又崩"。
-          pip install "pyannote.audio==4.0.7" "torchcodec==0.16.0"
-          pip install "setuptools==69.5.1" --force-reinstall --no-deps
-          echo "🔒 最终 setuptools 版本锁定为:"
-          pip show setuptools | grep -E "^Version"
+          pip install "pip-audit==2.10.1" "cmake==4.4.4"
+          python scripts/rebuild_sherpa.py --work-dir "$RUNNER_TEMP/hermeneus-sherpa-build" --python "$(command -v python)" --install
+          pip install -r requirements-diarization.txt
+          python scripts/rebuild_sndfile.py --work-dir "$RUNNER_TEMP/hermeneus-sndfile-build" --cmake "$(command -v cmake)"
+          cp "$RUNNER_TEMP/hermeneus-sndfile-build/libsndfile_arm64.dylib" runtime/libsndfile/
+          cp "$RUNNER_TEMP/hermeneus-sndfile-build/build.json" runtime/libsndfile/
+
+          python -m pip freeze > dependency-inventory.txt
+          pip-audit --disable-pip --no-deps -r dependency-inventory.txt -f json -o dependency-audit.json
+          pip-audit --disable-pip --no-deps -r dependency-inventory.txt -f cyclonedx-json -o dependency-sbom.json
+
+      - name: Test desktop setup protocol
+        run: python -m unittest discover -s tests -v
 
       - name: Build ASR Server Executable (ARM64)
         run: |
@@ -78,6 +85,9 @@ jobs:
           set -e
           cd asr_server
           pyinstaller --clean --noconfirm offline_diarizer.spec
+          cd ..
+          python scripts/record_diarizer.py --build "$RUNNER_TEMP/hermeneus-sherpa-build/sherpa-build.json" --binary asr_server/dist/offline_diarizer --output asr_server/dist/diarization-build.json
+          python scripts/record_decoders.py
       - name: Smoke Test Offline Components (Fail Fast)
         run: |
           set -e
@@ -102,33 +112,12 @@ jobs:
             exit 1
           fi
 
-          echo "🔎 冒烟测试：验证冻结入口及前 20 秒运行状态，提前捕获多进程递归、临时 Python 加载失败和启动期崩溃..."
-          "$BIN" > /tmp/asr_smoke.log 2>&1 &
-          SMOKE_PID=$!
-          sleep 20
-
-          if ! kill -0 "$SMOKE_PID" 2>/dev/null; then
-            echo "❌ ASR 二进制在启动阶段崩溃，完整日志如下："
-            cat /tmp/asr_smoke.log
-            exit 1
-          fi
-          if grep -E 'Failed to execute script|Failed to load Python shared library|address already in use' /tmp/asr_smoke.log; then
-            echo "❌ ASR 二进制出现冻结运行时异常，完整日志如下："
-            cat /tmp/asr_smoke.log
-            exit 1
-          fi
-
-          echo "✅ 冻结入口与 20 秒运行时冒烟测试通过"
-          kill "$SMOKE_PID" 2>/dev/null || true
-          wait "$SMOKE_PID" 2>/dev/null || true
-
-      - name: Install create-dmg tool
-        run: |
-          brew untap aws/tap 2>/dev/null || true
-          brew install create-dmg ffmpeg
+          echo "验证冻结运行时依赖；不下载模型，也不启动无凭据服务。"
+          python -c 'import subprocess; subprocess.run(["asr_server/dist/asr_server", "--runtime-check"], check=True, timeout=120)'
 
       - name: Build SwiftUI App for Apple Silicon
         run: |
+          set -euo pipefail
           cd HermeneusApp
           VERSION="${{ steps.version.outputs.VERSION }}"
           XCODEPROJ=$(find . -name "*.xcodeproj" -not -path "*/.*" | head -n 1)
@@ -160,7 +149,8 @@ jobs:
               cp -R "$BIN_PATH/${EXECUTABLE_NAME}_${EXECUTABLE_NAME}.bundle" "$APP_BUNDLE/Contents/Resources/"
             fi
 
-            python3 -c "import plistlib; path='$APP_BUNDLE/Contents/Info.plist'; data={'CFBundleExecutable': 'AILiveInterpreterApp', 'CFBundleIdentifier': 'com.hermeneus.ailiveinterpreter', 'CFBundleName': 'Hermeneus', 'CFBundleDisplayName': 'Hermeneus', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '${VERSION}', 'CFBundleVersion': '1', 'LSMinimumSystemVersion': '14.0', 'NSHighResolutionCapable': True, 'NSMicrophoneUsageDescription': '需要访问麦克风以进行实时语音同传'}; f=open(path, 'wb'); plistlib.dump(data, f); f.close()"
+          export HERMENEUS_BUILD_VERSION="$VERSION"
+            python3 -c "import plistlib, os; path='$APP_BUNDLE/Contents/Info.plist'; data={'CFBundleExecutable': 'AILiveInterpreterApp', 'CFBundleIdentifier': 'com.hermeneus.ailiveinterpreter', 'CFBundleName': 'Hermeneus', 'CFBundleDisplayName': 'Hermeneus', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': os.environ['HERMENEUS_BUILD_VERSION'], 'CFBundleVersion': open(os.path.join(os.environ['GITHUB_WORKSPACE'], 'BUILD_NUMBER')).read().strip(), 'LSMinimumSystemVersion': '14.0', 'NSHighResolutionCapable': True, 'NSMicrophoneUsageDescription': '需要访问麦克风以进行实时语音同传'}; f=open(path, 'wb'); plistlib.dump(data, f); f.close()"
 
             echo "✅ .app bundle 组装完成: $(pwd)/$APP_BUNDLE"
           else
@@ -188,23 +178,19 @@ jobs:
 
           codesign --force --deep --sign - "$LITE_APP"
 
-          create-dmg \
-            --volname "Hermeneus (Lite)" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --app-drop-link 425 120 \
-            "Hermeneus-v${VERSION}-Lite.dmg" \
-            "$LITE_APP" || true
-
-          if [ ! -f "Hermeneus-v${VERSION}-Lite.dmg" ]; then
-            echo "❌ create-dmg 执行失败"
-            exit 1
-          fi
+          ln -s /Applications "$LITE_STAGE/应用程序"
+          hdiutil create -volname "Hermeneus (Lite)" -srcfolder "$LITE_STAGE" -format UDZO "Hermeneus-v${VERSION}-Lite.dmg"
 
           zip -q -9 "Hermeneus-v${VERSION}-Lite.zip" "Hermeneus-v${VERSION}-Lite.dmg"
 
-      - name: Package Full DMG (Swift app + ASR engine)
+      - name: Test translation stream completion and audio route selection
+        run: |
+          bash scripts/test_translation_stream.sh
+          bash scripts/test_audio_route.sh
+          bash scripts/test_ipc_handoff.sh
+          bash scripts/test_private_logs.sh
+
+      - name: Package Full DMG (Swift app + ASR engine + headless Ollama)
         run: |
           set -e
           VERSION="${{ steps.version.outputs.VERSION }}"
@@ -226,50 +212,61 @@ jobs:
           mkdir -p "$FULL_APP/Contents/Resources"
           cp "$ASR_BIN" "$FULL_APP/Contents/Resources/asr_server"
           cp "$DIARIZER_BIN" "$FULL_APP/Contents/Resources/offline_diarizer"
+          cp asr_server/dist/diarization-build.json "$FULL_APP/Contents/Resources/diarization-build.json"
+          cp runtime/libsndfile/frozen.json "$FULL_APP/Contents/Resources/decoder-build.json"
+          cp DIARIZATION_MODELS.md "$FULL_APP/Contents/Resources/DIARIZATION_MODELS.md"
+          cp -R licenses "$FULL_APP/Contents/Resources/licenses"
           cp "$STARTER" "$FULL_APP/Contents/Resources/Hermeneus_start.sh"
+          python scripts/rebuild_ollama.py --work-dir "$RUNNER_TEMP/hermeneus-ollama-build"
+          python scripts/rebuild_native_ollama.py --work-dir "$RUNNER_TEMP/hermeneus-native-build" --disable-gif
+          python scripts/vendor_ollama.py "$FULL_APP/Contents/Resources/ollama-runtime" --patched-cli "$RUNNER_TEMP/hermeneus-ollama-build/ollama" --build-metadata "$RUNNER_TEMP/hermeneus-ollama-build/build.json" --native-runner "$RUNNER_TEMP/hermeneus-native-build/llama-server" --native-build-metadata "$RUNNER_TEMP/hermeneus-native-build/native-build.json"
           chmod +x "$FULL_APP/Contents/Resources/asr_server" "$FULL_APP/Contents/Resources/offline_diarizer" "$FULL_APP/Contents/Resources/Hermeneus_start.sh"
+          python scripts/rebuild_ffmpeg.py --work-dir "$RUNNER_TEMP/hermeneus-ffmpeg-build" --destination "$FULL_APP/Contents/Resources/ffmpeg"
           bash "$GITHUB_WORKSPACE/scripts/verify_full_bundle.sh" "$FULL_APP"
 
-          codesign --force --deep --sign - "$FULL_APP"
+          bash "$GITHUB_WORKSPACE/scripts/sign_full_bundle.sh" "$FULL_APP"
+          codesign --verify --deep --strict "$FULL_APP"
 
-          create-dmg \
-            --volname "Hermeneus (Full)" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --app-drop-link 425 120 \
-            "Hermeneus-macOS-v${VERSION}-Full.dmg" \
-            "$FULL_APP" || true
+          ln -s /Applications "$FULL_STAGE/应用程序"
+          hdiutil create -volname "Hermeneus (Full)" -srcfolder "$FULL_STAGE" -format UDZO "Hermeneus-macOS-v${VERSION}-Full.dmg"
+          test -s "Hermeneus-macOS-v${VERSION}-Full.dmg"
+
+      - name: Verify signatures from mounted disk images
+        run: |
+          set -euo pipefail
+          for image in Hermeneus*Full.dmg Hermeneus*Lite.dmg; do
+            MOUNT="$(mktemp -d "$RUNNER_TEMP/hermeneus-dmg-check.XXXXXX")"
+            trap 'hdiutil detach "$MOUNT" >/dev/null 2>&1 || true' EXIT
+            hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" "$image"
+            APP="$(find "$MOUNT" -maxdepth 2 -name '*.app' -print -quit)"
+            test -n "$APP"
+            codesign --verify --deep --strict "$APP"
+            hdiutil detach "$MOUNT"
+            rmdir "$MOUNT"
+            trap - EXIT
+          done
 
       # 必须对最终上传到 Release 的原始文件生成 provenance；之后不可再压缩、重命名或重打包。
       # 平台 L2 校验按 Release asset 的 SHA-256 查询 GitHub Attestation API。
       - name: Attest Full DMG provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: "Hermeneus-macOS-v${{ steps.version.outputs.VERSION }}-Full.dmg"
 
       - name: Attest Lite ZIP provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: "Hermeneus-v${{ steps.version.outputs.VERSION }}-Lite.zip"
 
       - name: Upload DMG Artifacts (for manual runs / QA)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Hermeneus-DMG-${{ steps.version.outputs.VERSION }}
           path: |
             Hermeneus-macOS-v*-Full.dmg
             Hermeneus-v*-Lite.zip
+            dependency-inventory.txt
+            dependency-audit.json
+            dependency-sbom.json
           if-no-files-found: error
           retention-days: 14
-
-      - name: Upload DMGs to Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          name: "Hermeneus-传译者 v${{ steps.version.outputs.VERSION }}"
-          files: |
-            Hermeneus-macOS-v*-Full.dmg
-            Hermeneus-v*-Lite.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

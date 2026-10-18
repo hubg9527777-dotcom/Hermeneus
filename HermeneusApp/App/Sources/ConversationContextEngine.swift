@@ -312,10 +312,6 @@ public actor ConversationContextEngine {
 
 private enum ContextDebugFlags {
     static var logContextEngine: Bool {
-        #if DEBUG
-        return true
-        #else
-        return false
-        #endif
+        ProcessInfo.processInfo.environment["HERMENEUS_DEBUG_CONTENT"] == "1"
     }
 }

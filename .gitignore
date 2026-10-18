@@ -35,3 +35,34 @@ asr_server/build/
 .manus_patches/
 HermeneusApp/App/.build/
 asr_server/__pycache__/
+
+# Local secrets; examples contain variable names only.
+.env*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key
+
+# Local binaries and private audit scratch files
+.local_test/
+*.copying
+
+# Maintainer-only publishing files and private archives
+/private-release-archive/
+/GITHUB_UPLOAD.md
+/publish-v*.sh
+
+# Private audit reports and raw evidence
+/audit/
+/SECURITY_AUDIT*.md
+/NATIVE_SECURITY_REVIEW.md
+
+# Security audit evidence can contain local paths and diagnostic context.
+/audit-*/
+
+# Local continuation notes contain development paths, not public source.
+/CONTINUATION.md
+
+# Private acceptance evidence.
+/validation-*/
